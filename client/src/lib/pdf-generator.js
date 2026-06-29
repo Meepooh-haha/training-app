@@ -447,92 +447,104 @@ export async function exportMemoSimple(data) {
 }
 
 // ============================================================
-// 2A — Memo Full (upgraded layout per spec)
+// 2A — Memo Full (upgraded layout per LivPlus_Memo_Design_Spec)
 // ============================================================
 export async function exportMemoFull(data) {
   await requireFont();
   const logo = await loadLogo();
   const doc = createDoc('บันทึกข้อความ');
   const font = doc._thaiFont;
-  const W = pageWidth(doc);   // 210 mm
-  const ML = 20;              // left margin
-  const MR = 15;              // right margin
-  const CW = W - ML - MR;    // 175 mm content width
-  let y = 15;
+  const W = pageWidth(doc);   // 210 mm (A4)
+  const ML = 13;              // left margin  (48px @ 96dpi)
+  const MR = 13;              // right margin (48px @ 96dpi)
+  const CW = W - ML - MR;    // 184 mm content width
+  let y = 10;                 // top padding  (36px @ 96dpi)
 
   // Standalone mode (MemoForm) when sig1_name key present; course mode (DocumentRender) otherwise
   const isStandalone = 'sig1_name' in data;
 
-  // ── Header: Logo (left) + MEMORANDUM box (right) ──
+  // ── SECTION 1: Header bar — Logo (left) + MEMORANDUM box (right) ──
+  const LOGO_W = 29;  // 110px
+  const LOGO_H = 14;  // ~52px auto height
   if (logo) {
-    try { doc.addImage(logo, 'PNG', ML, y, 50, 20); } catch (_) {}
+    try { doc.addImage(logo, 'PNG', ML, y, LOGO_W, LOGO_H); } catch (_) {}
   } else {
-    doc.setDrawColor(200);
-    doc.rect(ML, y, 38, 15);
+    // HTML-spec fallback logo
     doc.setFont(font, 'normal');
-    doc.setFontSize(8);
-    doc.setTextColor(160);
-    doc.text('LivPlus', ML + 19, y + 9.5, { align: 'center' });
+    doc.setFontSize(16);
+    doc.setTextColor(192, 34, 42);   // #C0222A
+    doc.text('Liv+', ML, y + 8);
+    doc.setFontSize(10);
+    doc.setTextColor(45, 106, 63);   // #2D6A3F
+    doc.text('Plus', ML + 2, y + 13);
   }
 
-  const boxW = 62;
-  const boxX = W - MR - boxW;
-  doc.setFillColor(0, 0, 0);
-  doc.rect(boxX, y, boxW, 12, 'F');
-  doc.setTextColor(255);
-  doc.setFontSize(14);
-  doc.text('MEMORANDUM', boxX + boxW / 2, y + 8.5, { align: 'center' });
+  // MEMORANDUM badge — navy #1C1C3A, width 160px=42mm, padding 8px top/bottom
+  const BOX_W = 42;
+  const BOX_H = 10;
+  const boxX = W - MR - BOX_W;
+  doc.setFillColor(28, 28, 58);      // #1C1C3A
+  doc.rect(boxX, y + 1, BOX_W, BOX_H, 'F');
+  doc.setFont(font, 'normal');
+  doc.setFontSize(9.75);             // 13px
+  doc.setTextColor(255, 255, 255);
+  doc.text('MEMORANDUM', boxX + BOX_W / 2, y + 1 + BOX_H / 2 + 1.8, { align: 'center' });
 
-  // Date right-aligned below box
-  doc.setTextColor(40);
-  doc.setFontSize(12);
-  doc.text(`วันที่  ${thaiDate(data.doc_date)}`, W - MR, y + 20, { align: 'right' });
-  y += 29;
+  // header bar margin-bottom 16px = 4mm
+  y += LOGO_H + 4;
 
-  // ── Separator ──
-  doc.setDrawColor(139, 26, 26);
-  doc.setLineWidth(0.6);
+  // ── SECTION 2: Date line (right-aligned, gap 6px = 1.5mm) ──
+  y += 1.5;
+  doc.setFont(font, 'normal');
+  doc.setFontSize(11);               // 14px
+  doc.setTextColor(0);
+  doc.text(`วันที่ / Date:   ${thaiDate(data.doc_date)}`, W - MR, y, { align: 'right' });
+  y += 5.5;  // line height (date line → divider: 0px gap per spec)
+
+  // ── SECTION 3: Horizontal divider 1 — black 1.5px ──
+  doc.setDrawColor(0, 0, 0);
+  doc.setLineWidth(0.5);
   doc.line(ML, y, W - MR, y);
-  y += 7;
+  y += 3.2;  // 12px gap
 
-  // ── Header fields (From / To / CC / Subject) ──
-  const LBL_W = 58;
+  // ── SECTION 4: Memo header fields (From / To / CC / Subject) ──
+  const LBL_W = 40;   // 150px label column
   const VAL_X = ML + LBL_W;
   const VAL_W = CW - LBL_W;
 
   const headerFields = [
-    { label: 'หน่วยงานผู้ส่ง / From', value: data.from_dept || '-' },
-    { label: 'เรียน / To', value: data.to_dept || '-' },
-    ...(data.cc_dept ? [{ label: 'สำเนา / CC', value: data.cc_dept }] : []),
-    { label: 'เรื่อง / Subject', value: data.subject || '-' },
+    { label: 'หน่วยงานผู้ส่ง / From:', value: data.from_dept || '-' },
+    { label: 'เรียน / To:', value: data.to_dept || '-' },
+    ...(data.cc_dept ? [{ label: 'สำเนา / CC:', value: data.cc_dept }] : []),
+    { label: 'เรื่อง:', value: data.subject || '-' },
   ];
 
-  doc.setFontSize(12);
+  doc.setFontSize(11);               // 14px
   for (const f of headerFields) {
     doc.setFont(font, 'normal');
-    doc.setTextColor(80);
+    doc.setTextColor(0);
     doc.text(f.label, ML, y);
-    doc.setTextColor(26, 26, 26);
     const vLines = doc.splitTextToSize(f.value, VAL_W);
     doc.text(vLines, VAL_X, y);
-    y += vLines.length * 7 + 1;
+    y += vLines.length * 6 + 1;     // line-height 1.6 + 4px row gap
   }
 
-  y += 2;
-  doc.setDrawColor(139, 26, 26);
-  doc.setLineWidth(0.4);
+  // ── SECTION 5: Horizontal divider 2 — black 1.5px ──
+  y += 2;    // 8px margin-top
+  doc.setDrawColor(0, 0, 0);
+  doc.setLineWidth(0.5);
   doc.line(ML, y, W - MR, y);
-  y += 9;
+  y += 3.7;  // 14px gap
 
-  // ── Body paragraph ──
+  // ── SECTION 6: Body text ──
   doc.setFont(font, 'normal');
-  doc.setFontSize(14);
-  doc.setTextColor(26, 26, 26);
+  doc.setFontSize(11);               // 14px
+  doc.setTextColor(0);
 
   if (isStandalone) {
     const bLines = doc.splitTextToSize(data.intro_text || '', CW);
     doc.text(bLines, ML, y);
-    y += bLines.length * 7 + 9;
+    y += bLines.length * 6.6 + 9;
   } else {
     const courseName = data.course_name || '-';
     const dateRange = thaiDateRange(data.training_date, data.end_date);
@@ -540,73 +552,86 @@ export async function exportMemoFull(data) {
     const attendeeCount = attendees.length || Number(data.attendee_count) || 0;
 
     const bodyPara =
-      `ตามที่ ${data.from_dept || '-'} ได้รับการอนุมัติให้ส่งบุคลากรเข้าร่วมการอบรมภายนอก ` +
+      `ตามที่ ${data.from_dept || 'ฝ่ายทรัพยากรบุคคล'} ได้รับการอนุมัติให้ส่งบุคลากรเข้าร่วมการอบรมภายนอก ` +
       `หลักสูตร ${courseName} ซึ่งกำหนดอบรมวันที่ ${dateRange} ` +
       `ณ ${data.location || '-'} โดยมีผู้เข้าร่วมจำนวน ${attendeeCount} ท่าน ได้แก่`;
 
     const bLines = doc.splitTextToSize(bodyPara, CW);
     doc.text(bLines, ML, y);
-    y += bLines.length * 7 + 2;
+    y += bLines.length * 6.6 + 2;
 
     attendees.forEach((a, i) => {
-      doc.setFontSize(14);
       doc.text(`${i + 1}.  ${a.name || ''}`, ML + 8, y);
-      y += 7;
+      y += 6;
     });
-    y += 3;
+    y += 2;  // 8px after list
 
-    const followUp = 'ทั้งนี้ ขออนุมัติค่าใช้จ่ายในการฝึกอบรม ตามรายละเอียดดังนี้';
+    const followUp = 'ทางฝ่าย ขออนุมัติค่าฝึกอบรมภายนอก ตามรายละเอียดดังนี้';
     const fuLines = doc.splitTextToSize(followUp, CW);
     doc.text(fuLines, ML, y);
-    y += fuLines.length * 7 + 6;
+    y += fuLines.length * 6.6 + 3.7;  // 14px gap before table
   }
 
-  // ── Budget table ──
+  // ── SECTION 7: Budget table ──
   const items = data.budget_items || [];
   const effCount = isStandalone ? 1 : (data.attendee_names?.length || Number(data.attendee_count) || 1);
 
-  // rowTypes maps body row index → 'name' | 'detail' | 'vendor' for didParseCell styling
   const rowTypes = {};
   let bodyRowIdx = 0;
   const tableBody = [];
+
+  // ROW TYPE B — sub-header (รายการขออนุมัติงบประมาณ)
+  tableBody.push([{
+    content: 'รายการขออนุมัติงบประมาณ',
+    colSpan: 3,
+    styles: {
+      halign: 'left',
+      fillColor: [232, 232, 232],   // #E8E8E8
+      textColor: [0, 0, 0],
+      font,
+      fontSize: 10,
+      cellPadding: { top: 2, bottom: 2, left: 4, right: 4 },
+    },
+  }]);
+  rowTypes[bodyRowIdx++] = 'subheader';
 
   items.forEach((it, i) => {
     const amount = Number(it.amount) || (Number(it.price_per_person || 0) * effCount) || 0;
     const itemLabel = it.item_name || it.description || '-';
 
-    // Row 1 — name: bold black via didParseCell
+    // ROW TYPE C — data row
     tableBody.push([`${i + 1}`, itemLabel, money(amount)]);
     rowTypes[bodyRowIdx++] = 'name';
 
-    // Row 2 — bullet details (black)
+    // bullet detail sub-rows (price per person)
     const detailLines = [];
     if (it.details) {
-      it.details.split('\n').filter(Boolean).forEach((line) => detailLines.push(`- ${line.trim()}`));
+      it.details.split('\n').filter(Boolean).forEach((line) => detailLines.push(`− ${line.trim()}`));
     }
     if (it.price_per_person) {
-      detailLines.push(`- ${money(it.price_per_person)} บาท × ${effCount} คน`);
+      detailLines.push(`− ${money(it.price_per_person)} บาท × ${effCount} คน`);
     }
     if (detailLines.length) {
       tableBody.push([{
         content: detailLines.join('\n'),
         colSpan: 3,
-        styles: { halign: 'left', font, fontSize: 11, textColor: [26, 26, 26], cellPadding: { top: 1, bottom: 2, left: 26, right: 3 } },
+        styles: { halign: 'left', font, fontSize: 9.4, textColor: [26, 26, 26], cellPadding: { top: 1, bottom: 2, left: 30, right: 4 } },
       }]);
       rowTypes[bodyRowIdx++] = 'detail';
     }
 
-    // Row 3 — vendor / invoice (gray)
+    // vendor / invoice sub-row
     const vendorLines = [];
-    if (it.vendor_name) vendorLines.push(`สั่งจ่ายนาม ${it.vendor_name}`);
+    if (it.vendor_name) vendorLines.push(`สั่งจ่ายในนาม ${it.vendor_name}`);
     const invParts = [];
-    if (it.invoice_no || it.invoice_number) invParts.push(`เลขที่ Invoice: ${it.invoice_no || it.invoice_number}`);
-    if (it.due_date || it.payment_date) invParts.push(`ครบกำหนด: ${thaiDate(it.due_date || it.payment_date)}`);
+    if (it.invoice_no || it.invoice_number) invParts.push(`${it.invoice_no || it.invoice_number}`);
+    if (it.due_date || it.payment_date) invParts.push(`ที่จ่าย วันที่ ${thaiDate(it.due_date || it.payment_date)}`);
     if (invParts.length) vendorLines.push(invParts.join('   '));
     if (vendorLines.length) {
       tableBody.push([{
         content: vendorLines.join('\n'),
         colSpan: 3,
-        styles: { halign: 'left', font, fontSize: 10, textColor: [130, 130, 130], cellPadding: { top: 1, bottom: 4, left: 26, right: 3 } },
+        styles: { halign: 'left', font, fontSize: 9, textColor: [120, 120, 120], cellPadding: { top: 1, bottom: 4, left: 30, right: 4 } },
       }]);
       rowTypes[bodyRowIdx++] = 'vendor';
     }
@@ -621,44 +646,61 @@ export async function exportMemoFull(data) {
     startY: y,
     margin: { left: ML, right: MR, bottom: 20 },
     head: [['ลำดับที่', 'รายการ', 'ค่าใช้จ่ายรวม (บาท)']],
-    body: tableBody.length ? tableBody : [['1', '-', '0.00']],
-    foot: [
-      [
-        { content: `รวมค่าใช้จ่ายทั้งหมด  (${bahtText(grandTotal)})`, colSpan: 2, styles: { halign: 'left', font, fontSize: 12 } },
-        { content: money(grandTotal), styles: { halign: 'right', font, fontSize: 12 } },
-      ],
+    body: tableBody.length > 1 ? tableBody : [
+      [{ content: 'รายการขออนุมัติงบประมาณ', colSpan: 3, styles: { halign: 'left', fillColor: [232, 232, 232], textColor: [0,0,0], font, fontSize: 10 } }],
+      ['1', '-', '0.00'],
     ],
-    headStyles: { fillColor: [139, 26, 26], textColor: 255, font, fontSize: 12, halign: 'center' },
-    styles: { font, fontSize: 12, cellPadding: 3, textColor: [26, 26, 26] },
-    footStyles: { fillColor: [255, 240, 240], textColor: [26, 26, 26], font, fontSize: 12 },
+    foot: [[
+      { content: `รวมค่าใช้จ่ายทั้งหมด  (${bahtText(grandTotal)})`, colSpan: 2, styles: { halign: 'left', font, fontSize: 10 } },
+      { content: money(grandTotal), styles: { halign: 'right', font, fontSize: 10 } },
+    ]],
+    headStyles: {
+      fillColor: [192, 34, 42],      // #C0222A
+      textColor: [255, 255, 255],
+      font,
+      fontSize: 10,                  // 13px
+      halign: 'center',
+      cellPadding: { top: 3, bottom: 3, left: 4, right: 4 },
+    },
+    styles: { font, fontSize: 10, cellPadding: { top: 3, bottom: 3, left: 4, right: 4 }, textColor: [26, 26, 26] },
+    footStyles: {
+      fillColor: [232, 232, 232],    // #E8E8E8
+      textColor: [0, 0, 0],
+      font,
+      fontSize: 10,
+      lineColor: [170, 170, 170],    // #AAAAAA top border
+      lineWidth: 0.5,
+    },
     columnStyles: {
-      0: { halign: 'center', cellWidth: 18 },
-      2: { halign: 'right', cellWidth: 45 },
+      0: { halign: 'center', cellWidth: 16 },   // ลำดับที่ 60px
+      2: { halign: 'right',  cellWidth: 32 },   // ค่าใช้จ่าย 120px
     },
     didParseCell: (d) => {
-      // Name rows: bold-weight black for column 1
       if (d.section === 'body' && rowTypes[d.row.index] === 'name' && d.column.index === 1) {
-        d.cell.styles.fontSize = 13;
-        d.cell.styles.textColor = [26, 26, 26];
+        d.cell.styles.textColor = [0, 0, 0];
       }
     },
   });
-  y = doc.lastAutoTable.finalY + 10;
+  y = doc.lastAutoTable.finalY + 2.6;  // 10px gap
 
-  // ── Closing ──
-  const closingText = isStandalone
-    ? 'ทั้งนี้ ทางฝ่ายฯ จะดำเนินการเคลียร์ค่าใช้จ่ายกับทางบัญชี ตามระบบบริษัทต่อไป'
-    : 'ทั้งนี้ ฝ่ายฯ จะดำเนินการเคลียร์ค่าใช้จ่ายกับทางบัญชี ตามระเบียบปฏิบัติบริษัทต่อไป';
-  const c1 = doc.splitTextToSize(closingText, CW);
-  doc.setFontSize(14);
+  // ── SECTION 8: Footer note lines ──
   doc.setFont(font, 'normal');
-  doc.setTextColor(26, 26, 26);
-  doc.text(c1, ML, y);
-  y += c1.length * 7 + 4;
-  doc.text('จึงเรียนมาเพื่อโปรดพิจารณาอนุมัติ', ML, y);
-  y += 18;
+  doc.setFontSize(10);               // 13px
+  doc.setTextColor(0);
 
-  // ── Signature block ──
+  const closingLine1 = isStandalone
+    ? 'ทั้งนี้ ทางฝ่ายฯ จะดำเนินการเคลียร์ค่าใช้จ่ายกับทางบัญชี ตามระบบบริษัทต่อไป'
+    : 'ทั้งนี้ ทางฝ่าย จะดำเนินการเคลียร์ค่าใช้จ่ายกับทางบัญชี ตามระเบียบบริษัทต่อไป';
+  const c1 = doc.splitTextToSize(closingLine1, CW);
+  doc.text(c1, ML, y);
+  y += c1.length * 5.6 + 2.6;       // 10px gap between footer lines
+
+  doc.text('จึงเรียนมาเพื่อโปรดพิจารณาอนุมัติ', ML, y);
+  y += 5.6 + 14.8;                  // 56px gap before signature block
+
+  // ── SECTION 9: Signature block ──
+  const SIG_LINE_W = 42;            // 160px signature line width
+
   if (isStandalone) {
     // 2+1 layout: sig1 (top-left) + sig2 (top-right), sig3 (bottom-center)
     const halfW = CW / 2;
@@ -669,46 +711,57 @@ export async function exportMemoFull(data) {
       { cx: sig1X, name: data.sig1_name, title: data.sig1_title },
       { cx: sig2X, name: data.sig2_name, title: data.sig2_title },
     ].forEach((s) => {
-      doc.setFontSize(12);
-      doc.setTextColor(60);
-      doc.text('ลงชื่อ ......................................', s.cx, y, { align: 'center' });
-      doc.setTextColor(20);
-      doc.text(`(${s.name || '..............................'})`, s.cx, y + 8, { align: 'center' });
+      doc.setDrawColor(0);
+      doc.setLineWidth(0.35);
+      doc.line(s.cx - SIG_LINE_W / 2, y, s.cx + SIG_LINE_W / 2, y);
+      doc.setFontSize(9.75);
+      doc.setTextColor(0);
+      doc.text(`(${s.name || '..............................'})`, s.cx, y + 5.6, { align: 'center' });
       if (s.title) {
+        doc.setFontSize(9);
         const tl = doc.splitTextToSize(s.title, halfW - 6);
-        doc.text(tl, s.cx, y + 15, { align: 'center' });
+        doc.text(tl, s.cx, y + 5.6 + 4, { align: 'center' });
       }
     });
 
-    y += 38;
-
+    y += 36;
     const sig3X = W / 2;
-    doc.setFontSize(12);
-    doc.setTextColor(60);
-    doc.text('ลงชื่อ ......................................', sig3X, y, { align: 'center' });
-    doc.setTextColor(20);
-    doc.text(`(${data.sig3_name || '..............................'})`, sig3X, y + 8, { align: 'center' });
+    doc.setDrawColor(0);
+    doc.setLineWidth(0.35);
+    doc.line(sig3X - SIG_LINE_W / 2, y, sig3X + SIG_LINE_W / 2, y);
+    doc.setFontSize(9.75);
+    doc.setTextColor(0);
+    doc.text(`(${data.sig3_name || '..............................'})`, sig3X, y + 5.6, { align: 'center' });
     if (data.sig3_title) {
+      doc.setFontSize(9);
       const tl = doc.splitTextToSize(data.sig3_title, halfW - 6);
-      doc.text(tl, sig3X, y + 15, { align: 'center' });
+      doc.text(tl, sig3X, y + 5.6 + 4, { align: 'center' });
     }
   } else {
-    // 3-column layout for DocumentRender (course mode)
+    // 3-column: preparer (left) | reviewer (center) | approver (right, +21mm lower per spec)
     const sigColW = CW / 3;
+    const APPROVER_DROP = 21;        // 80px lower
+
     const sigs = [
-      { role: 'ผู้จัดทำ', name: data.preparer_name, title: data.preparer_title },
-      { role: 'ผู้ตรวจสอบ', name: data.reviewer_name, title: data.reviewer_title },
-      { role: 'ผู้อนุมัติ', name: data.approver_name, title: data.approver_title },
+      { cx: ML + sigColW / 2,           name: data.preparer_name, title: data.preparer_title, dropY: 0 },
+      { cx: ML + sigColW + sigColW / 2, name: data.reviewer_name, title: data.reviewer_title, dropY: 0 },
+      { cx: ML + sigColW * 2 + sigColW / 2, name: data.approver_name, title: data.approver_title, dropY: APPROVER_DROP },
     ];
-    sigs.forEach((s, i) => {
-      const cx = ML + sigColW * i + sigColW / 2;
-      doc.setFontSize(12);
-      doc.setTextColor(60);
-      doc.text(s.role, cx, y, { align: 'center' });
-      doc.setTextColor(20);
-      doc.text('ลงชื่อ ......................................', cx, y + 14, { align: 'center' });
-      doc.text(`(${s.name || '..............................'})`, cx, y + 22, { align: 'center' });
-      if (s.title) doc.text(s.title, cx, y + 29, { align: 'center' });
+
+    sigs.forEach((s) => {
+      const sy = y + s.dropY;
+      doc.setDrawColor(0);
+      doc.setLineWidth(0.35);
+      doc.line(s.cx - SIG_LINE_W / 2, sy, s.cx + SIG_LINE_W / 2, sy);
+      doc.setFont(font, 'normal');
+      doc.setFontSize(9.75);         // 13px name
+      doc.setTextColor(0);
+      doc.text(`(${s.name || '..............................'})`, s.cx, sy + 5.6, { align: 'center' });
+      if (s.title) {
+        doc.setFontSize(9);          // 12px title
+        const tl = doc.splitTextToSize(s.title, sigColW - 6);
+        doc.text(tl, s.cx, sy + 5.6 + 4, { align: 'center' });
+      }
     });
   }
 
@@ -727,8 +780,8 @@ export async function exportMemoFull(data) {
     doc.text(`จัดทำโดย ${today}`, W - MR, pageH - 8, { align: 'right' });
   }
 
-  const dateStr = (data.doc_date || new Date().toISOString().slice(0, 10)).replace(/-/g, '');
-  doc.save(`MEMO-${data.req_no || 'standalone'}-${dateStr}.pdf`);
+  const fileDateStr = (data.doc_date || new Date().toISOString().slice(0, 10)).replace(/-/g, '');
+  doc.save(`MEMO-${data.req_no || 'standalone'}-${fileDateStr}.pdf`);
 }
 
 // ============================================================

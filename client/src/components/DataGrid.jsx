@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Pencil, Trash2, Plus, FileSpreadsheet, Search } from 'lucide-react';
+import { Pencil, Trash2, Plus, FileSpreadsheet, Search, Upload } from 'lucide-react';
 import { Button, Input, Card } from './ui.jsx';
 import { exportToExcel } from '../lib/excel-generator.js';
 
@@ -19,6 +19,7 @@ export default function DataGrid({
   onEdit,
   onDelete,
   onRowClick,
+  onImport,
   excel,
   searchKeys = [],
   newLabel = 'เพิ่มใหม่',
@@ -46,6 +47,11 @@ export default function DataGrid({
                 className="h-9 w-44 pl-8"
               />
             </div>
+          )}
+          {onImport && (
+            <Button variant="secondary" size="sm" onClick={onImport}>
+              <Upload size={15} /> นำเข้า
+            </Button>
           )}
           {excel && (
             <Button variant="secondary" size="sm" onClick={() => exportToExcel(filtered.map(excel.map), excel.filename, title)}>

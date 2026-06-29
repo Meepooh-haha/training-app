@@ -13,6 +13,9 @@ import PRForm from './pages/PRForm.jsx';
 import MemoForm from './pages/MemoForm.jsx';
 import Registration from './pages/Registration.jsx';
 import Evaluation from './pages/Evaluation.jsx';
+import GapAnalysisPage from './pages/Development/GapAnalysisPage.jsx';
+import TrainingRoadmapPage from './pages/Development/TrainingRoadmapPage.jsx';
+import CompetencyScoresPage from './pages/Development/CompetencyScoresPage.jsx';
 
 // Preload Thai font immediately so it's ready before any export button is clicked
 ensureThaiFont();
@@ -31,6 +34,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <Route path="memo-form" element={<MemoForm />} />
           <Route path="registration" element={<Registration />} />
           <Route path="evaluation" element={<Evaluation />} />
+          <Route path="development/competency-scores" element={<CompetencyScoresPage />} />
+          <Route path="development/gap-analysis" element={<GapAnalysisPage />} />
+          <Route path="development/roadmap" element={<TrainingRoadmapPage />} />
         </Route>
       </Routes>
     </BrowserRouter>

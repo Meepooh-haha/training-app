@@ -76,6 +76,18 @@ CREATE TABLE IF NOT EXISTS eval_form_items (
   FOREIGN KEY (form_code) REFERENCES eval_forms(code) ON DELETE CASCADE
 );
 
+-- 1E: Employees (ข้อมูลพนักงาน)
+CREATE TABLE IF NOT EXISTS employees (
+  code        TEXT PRIMARY KEY,
+  sequence    INTEGER DEFAULT 0,
+  full_name   TEXT NOT NULL,
+  nickname    TEXT,
+  email       TEXT,
+  position_th TEXT,
+  position_en TEXT,
+  department  TEXT
+);
+
 -- ---------- MODULE 1.5: COURSE SCHEDULE PLANNING (กำหนดหลักสูตร) ----------
 
 -- แผนการจัดอบรม (ก่อนขออนุมัติ)
@@ -201,4 +213,111 @@ CREATE TABLE IF NOT EXISTS eval_attachments (
   file_data   TEXT,                      -- base64 data URL
   uploaded_at TEXT,
   FOREIGN KEY (eval_id) REFERENCES training_evaluations(id) ON DELETE CASCADE
+);
+
+-- ---------- MODULE 3: ORGANIZATION STRUCTURE ----------
+
+-- 3A: Departments (ฝ่าย/แผนก)
+CREATE TABLE IF NOT EXISTS departments (
+  id      INTEGER PRIMARY KEY AUTOINCREMENT,
+  code    TEXT NOT NULL UNIQUE,
+  name    TEXT NOT NULL,
+  name_en TEXT
+);
+
+-- 3B: Positions (ตำแหน่งงาน)
+CREATE TABLE IF NOT EXISTS positions (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  code          TEXT NOT NULL UNIQUE,
+  name          TEXT NOT NULL,
+  name_en       TEXT,
+  level         TEXT,
+  department_id INTEGER REFERENCES departments(id)
+);
+
+-- 3C: Competency Assignments (สำหรับ Training Roadmap — ยังไม่มี UI)
+-- NOTE: UNIQUE(course_code, department_id, position_id) does not cover duplicate
+-- org-wide rows where both FKs are NULL (SQLite treats NULL != NULL in UNIQUE).
+-- Enforce no-duplicate org-wide assignments at the application layer when building the route.
+CREATE TABLE IF NOT EXISTS competency_assignments (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  course_code   TEXT REFERENCES courses(code),
+  department_id INTEGER REFERENCES departments(id),
+  position_id   INTEGER REFERENCES positions(id),
+  assign_type   TEXT NOT NULL CHECK(assign_type IN ('organization','functional')),
+  UNIQUE(course_code, department_id, position_id)
+);
+
+-- ---------- MODULE 4: COMPETENCY MANAGEMENT ----------
+
+-- 4A: Competency Dictionary
+CREATE TABLE IF NOT EXISTS competencies (
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  competency_code  TEXT UNIQUE NOT NULL,
+  name             TEXT NOT NULL,
+  type             TEXT NOT NULL CHECK(type IN ('organizational', 'functional', 'leadership')),
+  description      TEXT,
+  max_level        INTEGER DEFAULT 5,
+  level_1_desc     TEXT,
+  level_2_desc     TEXT,
+  level_3_desc     TEXT,
+  level_4_desc     TEXT,
+  level_5_desc     TEXT,
+  created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at       DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 4B: Functional Competency ↔ Department mapping
+CREATE TABLE IF NOT EXISTS competency_departments (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  competency_id  INTEGER NOT NULL REFERENCES competencies(id) ON DELETE CASCADE,
+  department_id  INTEGER NOT NULL REFERENCES departments(id) ON DELETE CASCADE,
+  UNIQUE(competency_id, department_id)
+);
+
+-- 4C: Position Competency Profile (required level per position)
+CREATE TABLE IF NOT EXISTS position_competency_profiles (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  position_id    INTEGER NOT NULL REFERENCES positions(id) ON DELETE CASCADE,
+  competency_id  INTEGER NOT NULL REFERENCES competencies(id) ON DELETE CASCADE,
+  required_level INTEGER NOT NULL CHECK(required_level BETWEEN 1 AND 5),
+  UNIQUE(position_id, competency_id)
+);
+
+-- 4D: Employee actual competency scores
+CREATE TABLE IF NOT EXISTS employee_competency_scores (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  employee_code  TEXT NOT NULL REFERENCES employees(code) ON DELETE CASCADE,
+  competency_id  INTEGER NOT NULL REFERENCES competencies(id) ON DELETE CASCADE,
+  actual_level   INTEGER NOT NULL CHECK(actual_level BETWEEN 1 AND 5),
+  assessor_type  TEXT DEFAULT 'manager' CHECK(assessor_type IN ('self','manager','hr')),
+  assessed_date  DATE NOT NULL,
+  notes          TEXT,
+  created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(employee_code, competency_id)
+);
+
+-- 4E: Competency → Course mapping
+CREATE TABLE IF NOT EXISTS competency_course_mapping (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  competency_id  INTEGER NOT NULL REFERENCES competencies(id) ON DELETE CASCADE,
+  course_code    TEXT NOT NULL REFERENCES courses(code) ON DELETE CASCADE,
+  target_level   INTEGER CHECK(target_level BETWEEN 1 AND 5),
+  UNIQUE(competency_id, course_code)
+);
+
+-- 4F: Employee training roadmap (IDP)
+CREATE TABLE IF NOT EXISTS employee_roadmaps (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  employee_code  TEXT NOT NULL REFERENCES employees(code) ON DELETE CASCADE,
+  competency_id  INTEGER NOT NULL REFERENCES competencies(id) ON DELETE CASCADE,
+  course_code    TEXT REFERENCES courses(code),
+  priority_order INTEGER,
+  status         TEXT DEFAULT 'not_started' CHECK(status IN ('not_started','in_progress','completed','waived')),
+  target_quarter TEXT,
+  completed_date DATE,
+  notes          TEXT,
+  created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(employee_code, competency_id)
 );

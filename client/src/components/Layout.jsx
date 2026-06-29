@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
-import { LayoutDashboard, Database, CalendarRange, FileText, FileOutput, Receipt, ClipboardList, ClipboardCheck, Menu } from 'lucide-react';
+import { LayoutDashboard, Database, CalendarRange, FileText, FileOutput, Receipt, ClipboardList, ClipboardCheck, Menu, BarChart3, Route, UserCheck } from 'lucide-react';
 
 const NAV = [
   { to: '/', label: 'แดชบอร์ด', icon: LayoutDashboard, end: true },
@@ -11,28 +11,42 @@ const NAV = [
   { to: '/memo-form', label: 'ออกใบ Memo', icon: FileOutput },
   { to: '/registration', label: 'ลงทะเบียน', icon: ClipboardList },
   { to: '/evaluation', label: 'ประเมินผล', icon: ClipboardCheck },
+  { type: 'section', label: 'พัฒนาบุคลากร' },
+  { to: '/development/competency-scores', label: 'ประเมินสมรรถนะ', icon: UserCheck },
+  { to: '/development/gap-analysis', label: 'Gap Analysis', icon: BarChart3 },
+  { to: '/development/roadmap', label: 'Training Roadmap', icon: Route },
 ];
 
 export default function Layout() {
   const [open, setOpen] = useState(false);
 
   const NavItems = () => (
-    <nav className="space-y-1 p-3">
-      {NAV.map(({ to, label, icon: Icon, end }) => (
-        <NavLink
-          key={to}
-          to={to}
-          end={end}
-          onClick={() => setOpen(false)}
-          className={({ isActive }) =>
-            `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
-              isActive ? 'bg-brand-600 text-white' : 'text-slate-600 hover:bg-slate-100'
-            }`
-          }
-        >
-          <Icon size={18} /> {label}
-        </NavLink>
-      ))}
+    <nav className="p-3">
+      {NAV.map((item, i) => {
+        if (item.type === 'section') {
+          return (
+            <div key={i} className="mt-3 mb-1 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-slate-400 border-t border-slate-200 pt-3">
+              {item.label}
+            </div>
+          );
+        }
+        const { to, label, icon: Icon, end } = item;
+        return (
+          <NavLink
+            key={to}
+            to={to}
+            end={end}
+            onClick={() => setOpen(false)}
+            className={({ isActive }) =>
+              `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
+                isActive ? 'bg-brand-600 text-white' : 'text-slate-600 hover:bg-slate-100'
+              }`
+            }
+          >
+            <Icon size={18} /> {label}
+          </NavLink>
+        );
+      })}
     </nav>
   );
 

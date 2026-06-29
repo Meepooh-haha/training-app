@@ -3,12 +3,24 @@ import TopicsTab from './setup/TopicsTab.jsx';
 import CoursesTab from './setup/CoursesTab.jsx';
 import EvalItemsTab from './setup/EvalItemsTab.jsx';
 import EvalFormsTab from './setup/EvalFormsTab.jsx';
+import DepartmentsTab from './setup/DepartmentsTab.jsx';
+import PositionsTab from './setup/PositionsTab.jsx';
+import EmployeesTab from './setup/EmployeesTab.jsx';
+import CompetencyTab from './setup/CompetencyTab.jsx';
+import CompetencyMatrixTab from './setup/CompetencyMatrixTab.jsx';
+import CompetencyCompareTab from './setup/CompetencyCompareTab.jsx';
 
 const TABS = [
   { key: 'topics', label: 'หัวข้ออบรม', Comp: TopicsTab },
   { key: 'courses', label: 'หลักสูตร', Comp: CoursesTab },
   { key: 'items', label: 'หัวข้อประเมิน', Comp: EvalItemsTab },
   { key: 'forms', label: 'รูปแบบประเมิน', Comp: EvalFormsTab },
+  { key: 'departments', label: 'ฝ่าย/แผนก', Comp: DepartmentsTab },
+  { key: 'positions', label: 'ตำแหน่งงาน', Comp: PositionsTab },
+  { key: 'employees', label: 'ข้อมูลพนักงาน', Comp: EmployeesTab },
+  { key: 'competency', label: 'Competency Dictionary', Comp: CompetencyTab },
+  { key: 'matrix', label: 'ตารางสมรรถนะ', Comp: CompetencyMatrixTab },
+  { key: 'compare', label: 'เปรียบเทียบตำแหน่ง', Comp: CompetencyCompareTab },
 ];
 
 export default function Setup() {

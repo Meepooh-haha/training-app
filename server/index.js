@@ -10,6 +10,12 @@ import requestsRoutes from './routes/requests.js';
 import registrationsRoutes from './routes/registrations.js';
 import dashboardRoutes from './routes/dashboard.js';
 import evaluationRoutes from './routes/evaluation.js';
+import employeesRoutes from './routes/employees.js';
+import departmentsRoutes from './routes/departments.js';
+import positionsRoutes from './routes/positions.js';
+import competenciesRoutes from './routes/competencies.js';
+import developmentRoutes from './routes/development.js';
+import memoRoutes from './routes/memo.js';
 
 const app = express();
 app.use(cors());
@@ -25,6 +31,12 @@ app.use('/api', requestsRoutes);
 app.use('/api', registrationsRoutes);
 app.use('/api', dashboardRoutes);
 app.use('/api', evaluationRoutes);
+app.use('/api', employeesRoutes);
+app.use('/api', departmentsRoutes);
+app.use('/api', positionsRoutes);
+app.use('/api', competenciesRoutes);
+app.use('/api', developmentRoutes);
+app.use('/api', memoRoutes);
 
 // Centralised error handler so route handlers can just throw.
 app.use((err, req, res, next) => {
