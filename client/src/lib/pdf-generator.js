@@ -606,7 +606,10 @@ export async function exportMemoFull(data) {
     // bullet detail sub-rows (price per person)
     const detailLines = [];
     if (it.details) {
-      it.details.split('\n').filter(Boolean).forEach((line) => detailLines.push(`− ${line.trim()}`));
+      it.details.split('\n').filter(Boolean).forEach((line) => {
+        const text = line.trim().replace(/^-+\s*/, '');
+        detailLines.push(`− ${text}`);
+      });
     }
     if (it.price_per_person) {
       detailLines.push(`− ${money(it.price_per_person)} บาท × ${effCount} คน`);
@@ -622,11 +625,11 @@ export async function exportMemoFull(data) {
 
     // vendor / invoice sub-row
     const vendorLines = [];
-    if (it.vendor_name) vendorLines.push(`สั่งจ่ายในนาม ${it.vendor_name}`);
+    if (it.vendor_name) vendorLines.push(`− สั่งจ่ายในนาม ${it.vendor_name}`);
     const invParts = [];
     if (it.invoice_no || it.invoice_number) invParts.push(`${it.invoice_no || it.invoice_number}`);
     if (it.due_date || it.payment_date) invParts.push(`ที่จ่าย วันที่ ${thaiDate(it.due_date || it.payment_date)}`);
-    if (invParts.length) vendorLines.push(invParts.join('   '));
+    if (invParts.length) vendorLines.push(`    ${invParts.join('   ')}`);
     if (vendorLines.length) {
       tableBody.push([{
         content: vendorLines.join('\n'),
