@@ -8,10 +8,12 @@
     "start": "node index.js"
   },
   "dependencies": {
+    "@libsql/client": "^0.17.4",
     "better-sqlite3": "^12.11.1",
     "cors": "^2.8.5",
     "docx-pdf": "^0.0.1",
     "docxtemplater": "^3.69.0",
+    "dotenv": "^17.4.2",
     "express": "^4.21.1",
     "phantomjs-prebuilt": "^2.1.16",
     "pizzip": "^3.2.0"

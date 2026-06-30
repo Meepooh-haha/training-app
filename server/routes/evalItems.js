@@ -1,38 +1,33 @@
 import { Router } from 'express';
-import db from '../db/db.js';
+import { q } from '../db/db.js';
 
 const router = Router();
-const h = (fn) => (req, res, next) => {
-  try {
-    fn(req, res);
-  } catch (e) {
-    next(e);
-  }
+const h = (fn) => async (req, res, next) => {
+  try { await fn(req, res); } catch (e) { next(e); }
 };
 
-// ---------------- 1C: Evaluation Items ----------------
-router.get('/eval-items', h((req, res) => {
-  res.json(db.prepare('SELECT * FROM eval_items ORDER BY code').all());
+router.get('/eval-items', h(async (req, res) => {
+  res.json(await q.all('SELECT * FROM eval_items ORDER BY code'));
 }));
 
-router.post('/eval-items', h((req, res) => {
-  const i = normItem(req.body);
-  db.prepare(
-    `INSERT INTO eval_items (code,name_th,name_en,eval_type,detail) VALUES (@code,@name_th,@name_en,@eval_type,@detail)`
-  ).run(i);
+router.post('/eval-items', h(async (req, res) => {
+  await q.run(
+    `INSERT INTO eval_items (code,name_th,name_en,eval_type,detail) VALUES (@code,@name_th,@name_en,@eval_type,@detail)`,
+    normItem(req.body),
+  );
   res.json({ ok: true });
 }));
 
-router.put('/eval-items/:code', h((req, res) => {
-  const i = { ...normItem(req.body), code: req.params.code };
-  db.prepare(
-    `UPDATE eval_items SET name_th=@name_th,name_en=@name_en,eval_type=@eval_type,detail=@detail WHERE code=@code`
-  ).run(i);
+router.put('/eval-items/:code', h(async (req, res) => {
+  await q.run(
+    `UPDATE eval_items SET name_th=@name_th,name_en=@name_en,eval_type=@eval_type,detail=@detail WHERE code=@code`,
+    { ...normItem(req.body), code: req.params.code },
+  );
   res.json({ ok: true });
 }));
 
-router.delete('/eval-items/:code', h((req, res) => {
-  db.prepare('DELETE FROM eval_items WHERE code=?').run(req.params.code);
+router.delete('/eval-items/:code', h(async (req, res) => {
+  await q.run('DELETE FROM eval_items WHERE code=?', [req.params.code]);
   res.json({ ok: true });
 }));
 

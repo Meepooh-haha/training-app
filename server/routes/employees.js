@@ -1,54 +1,55 @@
 import { Router } from 'express';
-import db from '../db/db.js';
+import db, { q } from '../db/db.js';
 
 const router = Router();
-const h = (fn) => (req, res, next) => {
-  try {
-    fn(req, res);
-  } catch (e) {
-    next(e);
-  }
+const h = (fn) => async (req, res, next) => {
+  try { await fn(req, res); } catch (e) { next(e); }
 };
 
-router.get('/employees', h((req, res) => {
-  res.json(db.prepare('SELECT * FROM employees ORDER BY sequence, code').all());
+router.get('/employees', h(async (req, res) => {
+  res.json(await q.all('SELECT * FROM employees ORDER BY sequence, code'));
 }));
 
-router.post('/employees', h((req, res) => {
-  db.prepare(
+router.post('/employees', h(async (req, res) => {
+  await q.run(
     `INSERT INTO employees (code,sequence,full_name,nickname,email,position_th,position_en,department,department_id,position_id)
-     VALUES (@code,@sequence,@full_name,@nickname,@email,@position_th,@position_en,@department,@department_id,@position_id)`
-  ).run(norm(req.body));
+     VALUES (@code,@sequence,@full_name,@nickname,@email,@position_th,@position_en,@department,@department_id,@position_id)`,
+    norm(req.body),
+  );
   res.json({ ok: true });
 }));
 
-router.put('/employees/:code', h((req, res) => {
-  db.prepare(
+router.put('/employees/:code', h(async (req, res) => {
+  await q.run(
     `UPDATE employees SET sequence=@sequence,full_name=@full_name,nickname=@nickname,
        email=@email,position_th=@position_th,position_en=@position_en,
        department=@department,department_id=@department_id,position_id=@position_id
-     WHERE code=@code`
-  ).run({ ...norm(req.body), code: req.params.code });
+     WHERE code=@code`,
+    { ...norm(req.body), code: req.params.code },
+  );
   res.json({ ok: true });
 }));
 
-router.delete('/employees/:code', h((req, res) => {
-  db.prepare('DELETE FROM employees WHERE code=?').run(req.params.code);
+router.delete('/employees/:code', h(async (req, res) => {
+  await q.run('DELETE FROM employees WHERE code=?', [req.params.code]);
   res.json({ ok: true });
 }));
 
-router.post('/employees/import', h((req, res) => {
+router.post('/employees/import', h(async (req, res) => {
   const { rows } = req.body;
   if (!Array.isArray(rows) || !rows.length) return res.status(400).json({ error: 'ไม่มีข้อมูล' });
-  const stmt = db.prepare(
-    `INSERT INTO employees (code,sequence,full_name,nickname,email,position_th,position_en,department)
-     VALUES (@code,@sequence,@full_name,@nickname,@email,@position_th,@position_en,@department)
-     ON CONFLICT(code) DO UPDATE SET
-       sequence=excluded.sequence, full_name=excluded.full_name, nickname=excluded.nickname,
-       email=excluded.email, position_th=excluded.position_th,
-       position_en=excluded.position_en, department=excluded.department`
+  await db.batch(
+    rows.map((row) => ({
+      sql: `INSERT INTO employees (code,sequence,full_name,nickname,email,position_th,position_en,department)
+            VALUES (@code,@sequence,@full_name,@nickname,@email,@position_th,@position_en,@department)
+            ON CONFLICT(code) DO UPDATE SET
+              sequence=excluded.sequence,full_name=excluded.full_name,nickname=excluded.nickname,
+              email=excluded.email,position_th=excluded.position_th,
+              position_en=excluded.position_en,department=excluded.department`,
+      args: norm(row),
+    })),
+    'write',
   );
-  db.transaction((r) => r.forEach((row) => stmt.run(norm(row))))(rows);
   res.json({ count: rows.length });
 }));
 

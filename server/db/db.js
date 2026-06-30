@@ -1,53 +1,27 @@
-import Database from 'better-sqlite3';
+import { createClient } from '@libsql/client';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { config } from 'dotenv';
 import { seedIfEmpty } from './seed.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+config({ path: join(__dirname, '../../.env') });
 
-const db = new Database(join(__dirname, 'training.db'));
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
+export const db = createClient({
+  url: process.env.TURSO_DATABASE_URL,
+  authToken: process.env.TURSO_AUTH_TOKEN,
+  intMode: 'number',
+});
 
-// Create tables (idempotent)
-db.exec(readFileSync(join(__dirname, 'schema.sql'), 'utf-8'));
+// Thin helpers — keep route code readable
+export const q = {
+  all: (sql, args = []) => db.execute({ sql, args }).then((r) => r.rows),
+  get: (sql, args = []) => db.execute({ sql, args }).then((r) => r.rows[0] ?? null),
+  run: (sql, args = []) => db.execute({ sql, args }),
+};
 
-// Migrations: add columns to existing tables without dropping them
-try { db.exec('ALTER TABLE courses ADD COLUMN competency_type TEXT;'); } catch { /* column already exists */ }
-
-// Migration: expand competencies.type CHECK to include 'leadership'
-{
-  const row = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='competencies'").get();
-  if (row && !row.sql.includes("'leadership'")) {
-    db.exec(`
-      PRAGMA foreign_keys = OFF;
-      CREATE TABLE competencies_new (
-        id               INTEGER PRIMARY KEY AUTOINCREMENT,
-        competency_code  TEXT UNIQUE NOT NULL,
-        name             TEXT NOT NULL,
-        type             TEXT NOT NULL CHECK(type IN ('organizational', 'functional', 'leadership')),
-        description      TEXT,
-        max_level        INTEGER DEFAULT 5,
-        level_1_desc     TEXT,
-        level_2_desc     TEXT,
-        level_3_desc     TEXT,
-        level_4_desc     TEXT,
-        level_5_desc     TEXT,
-        created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at       DATETIME DEFAULT CURRENT_TIMESTAMP
-      );
-      INSERT INTO competencies_new SELECT * FROM competencies;
-      DROP TABLE competencies;
-      ALTER TABLE competencies_new RENAME TO competencies;
-      PRAGMA foreign_keys = ON;
-    `);
-  }
-}
-
-// Seed departments master data (idempotent via INSERT OR IGNORE)
-const _deptSeed = db.prepare('INSERT OR IGNORE INTO departments (code, name) VALUES (?, ?)');
-[
+const DEPTS = [
   ['EXEC',       'กรรมการผู้จัดการ'],
   ['MKT-KOL',   'ฝ่ายการตลาด KOL, Affiliate และการจัดการ Live'],
   ['MKT-DIG',   'ฝ่ายการตลาดดิจิทัล'],
@@ -64,14 +38,9 @@ const _deptSeed = db.prepare('INSERT OR IGNORE INTO departments (code, name) VAL
   ['DIV-MKT',   'สายงานการตลาด'],
   ['DIV-SALES', 'สายงานขาย'],
   ['DIV-OPS',   'สายงานปฏิบัติการ'],
-].forEach(([code, name]) => _deptSeed.run(code, name));
+];
 
-try { db.exec(`ALTER TABLE employees ADD COLUMN department_id INTEGER REFERENCES departments(id)`); } catch {}
-db.exec(`UPDATE employees SET department_id = (SELECT id FROM departments WHERE name = employees.department) WHERE department_id IS NULL`);
-
-// Seed positions master data (idempotent via INSERT OR IGNORE)
-const _posSeed = db.prepare('INSERT OR IGNORE INTO positions (code, name, department_id) VALUES (?, ?, (SELECT id FROM departments WHERE name = ?))');
-[
+const POSITIONS = [
   ['EXEC-DIR',       'กรรมการบริหาร',                                              'กรรมการผู้จัดการ'],
   ['EXEC-MD',        'กรรมการผู้จัดการ',                                             'กรรมการผู้จัดการ'],
   ['EXEC-ASST',      'ผู้ช่วยผู้บริหาร',                                               'กรรมการผู้จัดการ'],
@@ -115,54 +84,105 @@ const _posSeed = db.prepare('INSERT OR IGNORE INTO positions (code, name, depart
   ['DIV-OPS-ADM',   'พนักงานธุรการ',                                                'สายงานปฏิบัติการ'],
   ['DIV-OPS-HD',    'หัวหน้าสายงานปฏิบัติการ',                                        'สายงานปฏิบัติการ'],
   ['DIV-OPS-PUR',   'เจ้าหน้าที่จัดซื้ออาวุโส',                                         'สายงานปฏิบัติการ'],
-].forEach(([code, name, deptName]) => _posSeed.run(code, name, deptName));
+];
 
-try { db.exec(`ALTER TABLE employees ADD COLUMN position_id INTEGER REFERENCES positions(id)`); } catch {}
-// Match on both name + department_id to resolve positions with duplicate names across departments
-db.exec(`
-  UPDATE employees
-  SET position_id = (
-    SELECT p.id FROM positions p
-    WHERE p.name = employees.position_th
-      AND p.department_id = employees.department_id
-  )
-  WHERE position_id IS NULL
-`);
+export async function initDb() {
+  const schema = readFileSync(join(__dirname, 'schema.sql'), 'utf-8');
+  await db.executeMultiple(schema);
 
-// Competency gap view — recreated on every start so definition changes take effect
-db.exec('DROP VIEW IF EXISTS v_competency_gap');
-db.exec(`
-  CREATE VIEW v_competency_gap AS
-  SELECT
-    e.code          AS employee_code,
-    e.full_name     AS employee_name,
-    e.position_id,
-    p.code          AS position_code,
-    p.name          AS position_name,
-    p.department_id,
-    d.name          AS department_name,
-    c.id            AS competency_id,
-    c.competency_code,
-    c.name          AS competency_name,
-    c.type          AS competency_type,
-    pcp.required_level,
-    COALESCE(ecs.actual_level, 0) AS actual_level,
-    COALESCE(ecs.actual_level, 0) - pcp.required_level AS gap,
-    CASE
-      WHEN ecs.actual_level IS NULL                         THEN 'not_assessed'
-      WHEN ecs.actual_level >= pcp.required_level           THEN 'passed'
-      WHEN pcp.required_level - ecs.actual_level = 1       THEN 'develop'
-      ELSE                                                       'urgent'
-    END AS priority
-  FROM employees e
-  JOIN positions p   ON e.position_id = p.id
-  LEFT JOIN departments d ON p.department_id = d.id
-  JOIN position_competency_profiles pcp ON p.id = pcp.position_id
-  JOIN competencies c ON pcp.competency_id = c.id
-  LEFT JOIN employee_competency_scores ecs
-    ON e.code = ecs.employee_code AND c.id = ecs.competency_id
-`);
+  // Migrations
+  try { await db.execute('ALTER TABLE courses ADD COLUMN competency_type TEXT'); } catch {}
 
-seedIfEmpty(db);
+  const compRow = await q.get("SELECT sql FROM sqlite_master WHERE type='table' AND name='competencies'");
+  if (compRow && !String(compRow.sql).includes("'leadership'")) {
+    await db.executeMultiple(`
+      PRAGMA foreign_keys = OFF;
+      CREATE TABLE competencies_new (
+        id               INTEGER PRIMARY KEY AUTOINCREMENT,
+        competency_code  TEXT UNIQUE NOT NULL,
+        name             TEXT NOT NULL,
+        type             TEXT NOT NULL CHECK(type IN ('organizational', 'functional', 'leadership')),
+        description      TEXT,
+        max_level        INTEGER DEFAULT 5,
+        level_1_desc     TEXT,
+        level_2_desc     TEXT,
+        level_3_desc     TEXT,
+        level_4_desc     TEXT,
+        level_5_desc     TEXT,
+        created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at       DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+      INSERT INTO competencies_new SELECT * FROM competencies;
+      DROP TABLE competencies;
+      ALTER TABLE competencies_new RENAME TO competencies;
+      PRAGMA foreign_keys = ON;
+    `);
+  }
+
+  await db.batch(
+    DEPTS.map(([code, name]) => ({
+      sql: 'INSERT OR IGNORE INTO departments (code, name) VALUES (?, ?)',
+      args: [code, name],
+    })),
+    'write',
+  );
+
+  try { await db.execute('ALTER TABLE employees ADD COLUMN department_id INTEGER REFERENCES departments(id)'); } catch {}
+  await db.execute('UPDATE employees SET department_id = (SELECT id FROM departments WHERE name = employees.department) WHERE department_id IS NULL');
+
+  await db.batch(
+    POSITIONS.map(([code, name, deptName]) => ({
+      sql: 'INSERT OR IGNORE INTO positions (code, name, department_id) VALUES (?, ?, (SELECT id FROM departments WHERE name = ?))',
+      args: [code, name, deptName],
+    })),
+    'write',
+  );
+
+  try { await db.execute('ALTER TABLE employees ADD COLUMN position_id INTEGER REFERENCES positions(id)'); } catch {}
+  await db.execute(`
+    UPDATE employees
+    SET position_id = (
+      SELECT p.id FROM positions p
+      WHERE p.name = employees.position_th
+        AND p.department_id = employees.department_id
+    )
+    WHERE position_id IS NULL
+  `);
+
+  await db.execute('DROP VIEW IF EXISTS v_competency_gap');
+  await db.execute(`
+    CREATE VIEW v_competency_gap AS
+    SELECT
+      e.code          AS employee_code,
+      e.full_name     AS employee_name,
+      e.position_id,
+      p.code          AS position_code,
+      p.name          AS position_name,
+      p.department_id,
+      d.name          AS department_name,
+      c.id            AS competency_id,
+      c.competency_code,
+      c.name          AS competency_name,
+      c.type          AS competency_type,
+      pcp.required_level,
+      COALESCE(ecs.actual_level, 0) AS actual_level,
+      COALESCE(ecs.actual_level, 0) - pcp.required_level AS gap,
+      CASE
+        WHEN ecs.actual_level IS NULL                         THEN 'not_assessed'
+        WHEN ecs.actual_level >= pcp.required_level           THEN 'passed'
+        WHEN pcp.required_level - ecs.actual_level = 1       THEN 'develop'
+        ELSE                                                       'urgent'
+      END AS priority
+    FROM employees e
+    JOIN positions p   ON e.position_id = p.id
+    LEFT JOIN departments d ON p.department_id = d.id
+    JOIN position_competency_profiles pcp ON p.id = pcp.position_id
+    JOIN competencies c ON pcp.competency_id = c.id
+    LEFT JOIN employee_competency_scores ecs
+      ON e.code = ecs.employee_code AND c.id = ecs.competency_id
+  `);
+
+  await seedIfEmpty(db);
+}
 
 export default db;

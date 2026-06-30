@@ -1,36 +1,40 @@
 import { Router } from 'express';
-import db from '../db/db.js';
+import { q } from '../db/db.js';
 
 const router = Router();
-const h = (fn) => (req, res, next) => {
-  try { fn(req, res); } catch (e) { next(e); }
+const h = (fn) => async (req, res, next) => {
+  try { await fn(req, res); } catch (e) { next(e); }
 };
 
-const isFk = (e) => e.message && e.message.includes('FOREIGN KEY constraint failed');
-
-router.get('/departments', h((req, res) => {
-  res.json(db.prepare('SELECT * FROM departments ORDER BY code').all());
+router.get('/departments', h(async (req, res) => {
+  res.json(await q.all('SELECT * FROM departments ORDER BY code'));
 }));
 
-router.post('/departments', h((req, res) => {
+router.post('/departments', h(async (req, res) => {
   const { code, name, name_en } = req.body;
-  db.prepare('INSERT INTO departments (code, name, name_en) VALUES (@code, @name, @name_en)')
-    .run({ code, name, name_en: name_en || '' });
+  await q.run(
+    'INSERT INTO departments (code, name, name_en) VALUES (@code, @name, @name_en)',
+    { code, name, name_en: name_en || '' },
+  );
   res.json({ ok: true });
 }));
 
-router.put('/departments/:id', h((req, res) => {
+router.put('/departments/:id', h(async (req, res) => {
   const { name, name_en } = req.body;
-  db.prepare('UPDATE departments SET name=@name, name_en=@name_en WHERE id=@id')
-    .run({ name, name_en: name_en || '', id: req.params.id });
+  await q.run(
+    'UPDATE departments SET name=@name, name_en=@name_en WHERE id=@id',
+    { name, name_en: name_en || '', id: req.params.id },
+  );
   res.json({ ok: true });
 }));
 
-router.delete('/departments/:id', h((req, res) => {
+router.delete('/departments/:id', h(async (req, res) => {
   try {
-    db.prepare('DELETE FROM departments WHERE id=?').run(req.params.id);
+    await q.run('DELETE FROM departments WHERE id=?', [req.params.id]);
   } catch (e) {
-    if (isFk(e)) throw Object.assign(new Error('ไม่สามารถลบได้ เนื่องจากมีตำแหน่งงานที่อ้างอิงฝ่ายนี้อยู่'), { status: 409 });
+    if (e.message && e.message.includes('FOREIGN KEY constraint failed')) {
+      throw Object.assign(new Error('ไม่สามารถลบได้ เนื่องจากมีตำแหน่งงานที่อ้างอิงฝ่ายนี้อยู่'), { status: 409 });
+    }
     throw e;
   }
   res.json({ ok: true });

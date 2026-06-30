@@ -1,14 +1,12 @@
 import { Router } from 'express';
-import db from '../db/db.js';
+import { q } from '../db/db.js';
 
 const router = Router();
-const h = (fn) => (req, res, next) => {
-  try { fn(req, res); } catch (e) { next(e); }
+const h = (fn) => async (req, res, next) => {
+  try { await fn(req, res); } catch (e) { next(e); }
 };
 
-const isFk = (e) => e.message && e.message.includes('FOREIGN KEY constraint failed');
-
-router.get('/positions', h((req, res) => {
+router.get('/positions', h(async (req, res) => {
   const { department_id } = req.query;
   const sql = `
     SELECT p.*, d.name AS department_name
@@ -17,30 +15,34 @@ router.get('/positions', h((req, res) => {
     ${department_id ? 'WHERE p.department_id=?' : ''}
     ORDER BY p.code
   `;
-  res.json(department_id ? db.prepare(sql).all(department_id) : db.prepare(sql).all());
+  res.json(await q.all(sql, department_id ? [department_id] : []));
 }));
 
-router.post('/positions', h((req, res) => {
+router.post('/positions', h(async (req, res) => {
   const { code, name, name_en, level, department_id } = req.body;
-  db.prepare(
-    'INSERT INTO positions (code, name, name_en, level, department_id) VALUES (@code, @name, @name_en, @level, @department_id)'
-  ).run({ code, name, name_en: name_en || '', level: level || '', department_id: department_id || null });
+  await q.run(
+    'INSERT INTO positions (code, name, name_en, level, department_id) VALUES (@code, @name, @name_en, @level, @department_id)',
+    { code, name, name_en: name_en || '', level: level || '', department_id: department_id || null },
+  );
   res.json({ ok: true });
 }));
 
-router.put('/positions/:id', h((req, res) => {
+router.put('/positions/:id', h(async (req, res) => {
   const { name, name_en, level, department_id } = req.body;
-  db.prepare(
-    'UPDATE positions SET name=@name, name_en=@name_en, level=@level, department_id=@department_id WHERE id=@id'
-  ).run({ name, name_en: name_en || '', level: level || '', department_id: department_id || null, id: req.params.id });
+  await q.run(
+    'UPDATE positions SET name=@name, name_en=@name_en, level=@level, department_id=@department_id WHERE id=@id',
+    { name, name_en: name_en || '', level: level || '', department_id: department_id || null, id: req.params.id },
+  );
   res.json({ ok: true });
 }));
 
-router.delete('/positions/:id', h((req, res) => {
+router.delete('/positions/:id', h(async (req, res) => {
   try {
-    db.prepare('DELETE FROM positions WHERE id=?').run(req.params.id);
+    await q.run('DELETE FROM positions WHERE id=?', [req.params.id]);
   } catch (e) {
-    if (isFk(e)) throw Object.assign(new Error('ไม่สามารถลบได้ เนื่องจากมีข้อมูลที่อ้างอิงตำแหน่งนี้อยู่'), { status: 409 });
+    if (e.message && e.message.includes('FOREIGN KEY constraint failed')) {
+      throw Object.assign(new Error('ไม่สามารถลบได้ เนื่องจากมีข้อมูลที่อ้างอิงตำแหน่งนี้อยู่'), { status: 409 });
+    }
     throw e;
   }
   res.json({ ok: true });

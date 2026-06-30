@@ -1,41 +1,36 @@
 import { Router } from 'express';
-import db from '../db/db.js';
+import { q } from '../db/db.js';
 
 const router = Router();
-const h = (fn) => (req, res, next) => {
-  try {
-    fn(req, res);
-  } catch (e) {
-    next(e);
-  }
+const h = (fn) => async (req, res, next) => {
+  try { await fn(req, res); } catch (e) { next(e); }
 };
 
-// ---------------- 1A: Training Topics ----------------
-router.get('/topics', h((req, res) => {
-  res.json(db.prepare('SELECT * FROM training_topics ORDER BY code').all());
+router.get('/topics', h(async (req, res) => {
+  res.json(await q.all('SELECT * FROM training_topics ORDER BY code'));
 }));
 
-router.post('/topics', h((req, res) => {
-  const t = req.body;
-  db.prepare(
+router.post('/topics', h(async (req, res) => {
+  await q.run(
     `INSERT INTO training_topics (code,name_th,name_en,type,duration_hours,duration_minutes,is_continuous)
-     VALUES (@code,@name_th,@name_en,@type,@duration_hours,@duration_minutes,@is_continuous)`
-  ).run(normTopic(t));
+     VALUES (@code,@name_th,@name_en,@type,@duration_hours,@duration_minutes,@is_continuous)`,
+    normTopic(req.body),
+  );
   res.json({ ok: true });
 }));
 
-router.put('/topics/:code', h((req, res) => {
-  const t = { ...normTopic(req.body), code: req.params.code };
-  db.prepare(
+router.put('/topics/:code', h(async (req, res) => {
+  await q.run(
     `UPDATE training_topics SET name_th=@name_th,name_en=@name_en,type=@type,
        duration_hours=@duration_hours,duration_minutes=@duration_minutes,is_continuous=@is_continuous
-     WHERE code=@code`
-  ).run(t);
+     WHERE code=@code`,
+    { ...normTopic(req.body), code: req.params.code },
+  );
   res.json({ ok: true });
 }));
 
-router.delete('/topics/:code', h((req, res) => {
-  db.prepare('DELETE FROM training_topics WHERE code=?').run(req.params.code);
+router.delete('/topics/:code', h(async (req, res) => {
+  await q.run('DELETE FROM training_topics WHERE code=?', [req.params.code]);
   res.json({ ok: true });
 }));
 

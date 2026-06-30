@@ -1,43 +1,37 @@
 import { Router } from 'express';
-import db from '../db/db.js';
+import db, { q } from '../db/db.js';
 
 const router = Router();
-const h = (fn) => (req, res, next) => {
-  try {
-    fn(req, res);
-  } catch (e) {
-    next(e);
-  }
+const h = (fn) => async (req, res, next) => {
+  try { await fn(req, res); } catch (e) { next(e); }
 };
 
-// ---------------- 2A: Training Requests ----------------
-router.get('/requests', h((req, res) => {
-  // Join course name for list display.
-  res.json(
-    db
-      .prepare(
-        `SELECT r.*, c.name_th AS course_name_th
-         FROM training_requests r LEFT JOIN courses c ON c.code = r.course_code
-         ORDER BY r.created_at DESC, r.id DESC`
-      )
-      .all()
-  );
+router.get('/requests', h(async (req, res) => {
+  res.json(await q.all(
+    `SELECT r.*, c.name_th AS course_name_th
+     FROM training_requests r LEFT JOIN courses c ON c.code = r.course_code
+     ORDER BY r.created_at DESC, r.id DESC`,
+  ));
 }));
 
-router.get('/requests/:id', h((req, res) => {
-  const r = db.prepare('SELECT * FROM training_requests WHERE id=?').get(req.params.id);
+router.get('/requests/:id', h(async (req, res) => {
+  const r = await q.get('SELECT * FROM training_requests WHERE id=?', [req.params.id]);
   if (!r) return res.status(404).json({ error: 'not found' });
-  r.attendees = db.prepare('SELECT * FROM request_attendees WHERE req_id=?').all(r.id);
-  r.schedule = db.prepare('SELECT * FROM request_schedule WHERE req_id=? ORDER BY date,start_time').all(r.id);
+  r.attendees = await q.all('SELECT * FROM request_attendees WHERE req_id=?', [r.id]);
+  r.schedule = await q.all(
+    'SELECT * FROM request_schedule WHERE req_id=? ORDER BY date,start_time',
+    [r.id],
+  );
   res.json(r);
 }));
 
-function nextReqNo() {
+async function nextReqNo(tx) {
   const year = new Date().getFullYear();
   const prefix = `TR-${year}-`;
-  const row = db
-    .prepare(`SELECT req_no FROM training_requests WHERE req_no LIKE ? ORDER BY req_no DESC LIMIT 1`)
-    .get(prefix + '%');
+  const row = (await tx.execute({
+    sql: 'SELECT req_no FROM training_requests WHERE req_no LIKE ? ORDER BY req_no DESC LIMIT 1',
+    args: [prefix + '%'],
+  })).rows[0];
   const n = row ? parseInt(row.req_no.slice(prefix.length), 10) + 1 : 1;
   return prefix + String(n).padStart(3, '0');
 }
@@ -65,63 +59,72 @@ function reqParams(r) {
   };
 }
 
-function saveChildren(reqId, r) {
-  db.prepare('DELETE FROM request_attendees WHERE req_id=?').run(reqId);
-  const a = db.prepare(
-    'INSERT INTO request_attendees (req_id,employee_id,name,department,position) VALUES (?,?,?,?,?)'
-  );
-  (r.attendees || []).forEach((x) =>
-    a.run(reqId, x.employee_id || '', x.name || '', x.department || '', x.position || '')
-  );
-
-  db.prepare('DELETE FROM request_schedule WHERE req_id=?').run(reqId);
-  const s = db.prepare(
-    'INSERT INTO request_schedule (req_id,date,start_time,end_time,topic,trainer) VALUES (?,?,?,?,?,?)'
-  );
-  (r.schedule || []).forEach((x) =>
-    s.run(reqId, x.date || '', x.start_time || '', x.end_time || '', x.topic || '', x.trainer || '')
-  );
+async function saveChildren(tx, reqId, r) {
+  await tx.execute({ sql: 'DELETE FROM request_attendees WHERE req_id=?', args: [reqId] });
+  for (const x of (r.attendees || [])) {
+    await tx.execute({
+      sql: 'INSERT INTO request_attendees (req_id,employee_id,name,department,position) VALUES (?,?,?,?,?)',
+      args: [reqId, x.employee_id || '', x.name || '', x.department || '', x.position || ''],
+    });
+  }
+  await tx.execute({ sql: 'DELETE FROM request_schedule WHERE req_id=?', args: [reqId] });
+  for (const x of (r.schedule || [])) {
+    await tx.execute({
+      sql: 'INSERT INTO request_schedule (req_id,date,start_time,end_time,topic,trainer) VALUES (?,?,?,?,?,?)',
+      args: [reqId, x.date || '', x.start_time || '', x.end_time || '', x.topic || '', x.trainer || ''],
+    });
+  }
 }
 
-const createReq = db.transaction((r) => {
-  const reqNo = nextReqNo();
-  const info = db
-    .prepare(
-      `INSERT INTO training_requests
-        (req_no,course_code,training_date,end_date,location,trainer_name,trainer_org,
-         budget_instructor,budget_venue,budget_food,budget_material,budget_other,
-         attendee_count,objective,target_group,status,created_at,approved_by,approved_at,notes)
-       VALUES (@req_no,@course_code,@training_date,@end_date,@location,@trainer_name,@trainer_org,
-         @budget_instructor,@budget_venue,@budget_food,@budget_material,@budget_other,
-         @attendee_count,@objective,@target_group,@status,@created_at,@approved_by,@approved_at,@notes)`
-    )
-    .run({ ...reqParams(r), req_no: reqNo, created_at: new Date().toISOString().slice(0, 10) });
-  saveChildren(info.lastInsertRowid, r);
-  return info.lastInsertRowid;
-});
-
-const updateReq = db.transaction((id, r) => {
-  db.prepare(
-    `UPDATE training_requests SET course_code=@course_code,training_date=@training_date,end_date=@end_date,
-      location=@location,trainer_name=@trainer_name,trainer_org=@trainer_org,
-      budget_instructor=@budget_instructor,budget_venue=@budget_venue,budget_food=@budget_food,
-      budget_material=@budget_material,budget_other=@budget_other,attendee_count=@attendee_count,
-      objective=@objective,target_group=@target_group,status=@status,approved_by=@approved_by,
-      approved_at=@approved_at,notes=@notes WHERE id=@id`
-  ).run({ ...reqParams(r), id });
-  saveChildren(id, r);
-});
-
-router.post('/requests', h((req, res) => {
-  const id = createReq(req.body);
-  res.json({ ok: true, id });
+router.post('/requests', h(async (req, res) => {
+  const tx = await db.transaction('write');
+  try {
+    const reqNo = await nextReqNo(tx);
+    const r = await tx.execute({
+      sql: `INSERT INTO training_requests
+              (req_no,course_code,training_date,end_date,location,trainer_name,trainer_org,
+               budget_instructor,budget_venue,budget_food,budget_material,budget_other,
+               attendee_count,objective,target_group,status,created_at,approved_by,approved_at,notes)
+            VALUES (@req_no,@course_code,@training_date,@end_date,@location,@trainer_name,@trainer_org,
+               @budget_instructor,@budget_venue,@budget_food,@budget_material,@budget_other,
+               @attendee_count,@objective,@target_group,@status,@created_at,@approved_by,@approved_at,@notes)
+            RETURNING id`,
+      args: { ...reqParams(req.body), req_no: reqNo, created_at: new Date().toISOString().slice(0, 10) },
+    });
+    const id = r.rows[0].id;
+    await saveChildren(tx, id, req.body);
+    await tx.commit();
+    res.json({ ok: true, id });
+  } catch (e) {
+    await tx.rollback();
+    throw e;
+  }
 }));
-router.put('/requests/:id', h((req, res) => {
-  updateReq(Number(req.params.id), req.body);
-  res.json({ ok: true });
+
+router.put('/requests/:id', h(async (req, res) => {
+  const id = Number(req.params.id);
+  const tx = await db.transaction('write');
+  try {
+    await tx.execute({
+      sql: `UPDATE training_requests SET course_code=@course_code,training_date=@training_date,end_date=@end_date,
+              location=@location,trainer_name=@trainer_name,trainer_org=@trainer_org,
+              budget_instructor=@budget_instructor,budget_venue=@budget_venue,budget_food=@budget_food,
+              budget_material=@budget_material,budget_other=@budget_other,attendee_count=@attendee_count,
+              objective=@objective,target_group=@target_group,status=@status,approved_by=@approved_by,
+              approved_at=@approved_at,notes=@notes WHERE id=@id`,
+      args: { ...reqParams(req.body), id },
+    });
+    await saveChildren(tx, id, req.body);
+    await tx.commit();
+    res.json({ ok: true });
+  } catch (e) {
+    await tx.rollback();
+    throw e;
+  }
 }));
-router.delete('/requests/:id', h((req, res) => {
-  db.prepare('DELETE FROM training_requests WHERE id=?').run(req.params.id);
+
+router.delete('/requests/:id', h(async (req, res) => {
+  await q.run('DELETE FROM training_requests WHERE id=?', [req.params.id]);
   res.json({ ok: true });
 }));
 
