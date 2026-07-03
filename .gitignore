@@ -7,3 +7,5 @@ dist/
 .env
 test-output.pdf
 server/templates/pr.docx.bak
+.vercel
+.env*
