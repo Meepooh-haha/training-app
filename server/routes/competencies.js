@@ -75,7 +75,7 @@ router.post('/competencies', h(async (req, res) => {
     }
 
     if (type === 'functional' && Array.isArray(position_ids) && position_ids.length) {
-      const level = Number(default_required_level) || 3;
+      const level = Number(default_required_level) || 1;
       for (const pid of position_ids) {
         await tx.execute({
           sql: 'INSERT OR IGNORE INTO position_competency_profiles (position_id, competency_id, required_level) VALUES (?, ?, ?)',
@@ -88,7 +88,7 @@ router.post('/competencies', h(async (req, res) => {
       const allPositions = (await tx.execute('SELECT id FROM positions')).rows;
       for (const p of allPositions) {
         await tx.execute({
-          sql: 'INSERT OR IGNORE INTO position_competency_profiles (position_id, competency_id, required_level) VALUES (?, ?, 3)',
+          sql: 'INSERT OR IGNORE INTO position_competency_profiles (position_id, competency_id, required_level) VALUES (?, ?, 1)',
           args: [p.id, id],
         });
       }
@@ -155,7 +155,7 @@ router.put('/competencies/:id', h(async (req, res) => {
       }
 
       const toAdd = newPosIds.filter((pid) => !allCurrentPosIds.includes(pid));
-      const level = Number(default_required_level) || 3;
+      const level = Number(default_required_level) || 1;
       for (const pid of toAdd) {
         await tx.execute({
           sql: 'INSERT OR IGNORE INTO position_competency_profiles (position_id, competency_id, required_level) VALUES (?, ?, ?)',
@@ -167,7 +167,7 @@ router.put('/competencies/:id', h(async (req, res) => {
       const allPositions = (await tx.execute('SELECT id FROM positions')).rows;
       for (const p of allPositions) {
         await tx.execute({
-          sql: 'INSERT OR IGNORE INTO position_competency_profiles (position_id, competency_id, required_level) VALUES (?, ?, 3)',
+          sql: 'INSERT OR IGNORE INTO position_competency_profiles (position_id, competency_id, required_level) VALUES (?, ?, 1)',
           args: [p.id, cid],
         });
       }
@@ -184,6 +184,90 @@ router.put('/competencies/:id', h(async (req, res) => {
 router.delete('/competencies/:id', h(async (req, res) => {
   await q.run('DELETE FROM competencies WHERE id = ?', [req.params.id]);
   res.json({ ok: true });
+}));
+
+router.post('/competencies/import', h(async (req, res) => {
+  const { rows } = req.body;
+  if (!Array.isArray(rows) || !rows.length) return res.status(400).json({ error: 'ไม่มีข้อมูล' });
+
+  const [depts, allPositions] = await Promise.all([
+    q.all('SELECT id, code FROM departments'),
+    q.all('SELECT id, department_id FROM positions'),
+  ]);
+  const deptByCode = Object.fromEntries(depts.map((d) => [d.code.toUpperCase(), d.id]));
+
+  const tx = await db.transaction('write');
+  let count = 0;
+  try {
+    for (const row of rows) {
+      const deptCodes = row.department_codes
+        ? String(row.department_codes).split(',').map((s) => s.trim().toUpperCase()).filter(Boolean)
+        : [];
+      const deptIds = deptCodes.map((c) => deptByCode[c]).filter(Boolean);
+
+      const r = await tx.execute({
+        sql: `INSERT INTO competencies
+                (competency_code,name,type,description,max_level,
+                 level_1_desc,level_2_desc,level_3_desc,level_4_desc,level_5_desc)
+              VALUES
+                (@competency_code,@name,@type,@description,@max_level,
+                 @level_1_desc,@level_2_desc,@level_3_desc,@level_4_desc,@level_5_desc)
+              ON CONFLICT(competency_code) DO UPDATE SET
+                name=excluded.name,type=excluded.type,
+                description=excluded.description,max_level=excluded.max_level,
+                level_1_desc=excluded.level_1_desc,level_2_desc=excluded.level_2_desc,
+                level_3_desc=excluded.level_3_desc,updated_at=CURRENT_TIMESTAMP
+              RETURNING id`,
+        args: {
+          competency_code: row.competency_code,
+          name: row.name,
+          type: row.type,
+          description: row.description || '',
+          max_level: 3,
+          level_1_desc: row.level_1_desc || '',
+          level_2_desc: row.level_2_desc || '',
+          level_3_desc: row.level_3_desc || '',
+          level_4_desc: '',
+          level_5_desc: '',
+        },
+      });
+      const cid = r.rows[0].id;
+
+      await tx.execute({ sql: 'DELETE FROM competency_departments WHERE competency_id = ?', args: [cid] });
+      if (row.type === 'functional' && deptIds.length) {
+        for (const did of deptIds) {
+          await tx.execute({
+            sql: 'INSERT OR IGNORE INTO competency_departments (competency_id, department_id) VALUES (?, ?)',
+            args: [cid, did],
+          });
+        }
+      }
+
+      if (row.type === 'organizational' || row.type === 'leadership') {
+        for (const p of allPositions) {
+          await tx.execute({
+            sql: 'INSERT OR IGNORE INTO position_competency_profiles (position_id, competency_id, required_level) VALUES (?, ?, 1)',
+            args: [p.id, cid],
+          });
+        }
+      } else if (row.type === 'functional' && deptIds.length) {
+        const level = Number(row.default_required_level) || 1;
+        for (const p of allPositions.filter((p) => deptIds.includes(p.department_id))) {
+          await tx.execute({
+            sql: 'INSERT OR IGNORE INTO position_competency_profiles (position_id, competency_id, required_level) VALUES (?, ?, ?)',
+            args: [p.id, cid, level],
+          });
+        }
+      }
+
+      count++;
+    }
+    await tx.commit();
+    res.json({ count });
+  } catch (e) {
+    await tx.rollback();
+    throw e;
+  }
 }));
 
 // ── Competency Matrix ──────────────────────────────────────────────

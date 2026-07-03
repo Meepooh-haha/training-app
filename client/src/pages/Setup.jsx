@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import TopicsTab from './setup/TopicsTab.jsx';
 import CoursesTab from './setup/CoursesTab.jsx';
 import EvalItemsTab from './setup/EvalItemsTab.jsx';
@@ -9,6 +10,8 @@ import EmployeesTab from './setup/EmployeesTab.jsx';
 import CompetencyTab from './setup/CompetencyTab.jsx';
 import CompetencyMatrixTab from './setup/CompetencyMatrixTab.jsx';
 import CompetencyCompareTab from './setup/CompetencyCompareTab.jsx';
+import VendorsTab from './setup/VendorsTab.jsx';
+import InstructorVenueTab from './setup/InstructorVenueTab.jsx';
 
 const TABS = [
   { key: 'topics', label: 'หัวข้ออบรม', Comp: TopicsTab },
@@ -21,10 +24,20 @@ const TABS = [
   { key: 'competency', label: 'Competency Dictionary', Comp: CompetencyTab },
   { key: 'matrix', label: 'ตารางสมรรถนะ', Comp: CompetencyMatrixTab },
   { key: 'compare', label: 'เปรียบเทียบตำแหน่ง', Comp: CompetencyCompareTab },
+  { key: 'vendors', label: 'Vendor', Comp: VendorsTab },
+  { key: 'instructor-venue', label: 'วิทยากร / สถานที่', Comp: InstructorVenueTab },
 ];
 
 export default function Setup() {
-  const [tab, setTab] = useState('topics');
+  const [searchParams] = useSearchParams();
+  const initialTab = TABS.find(t => t.key === searchParams.get('tab'))?.key ?? 'topics';
+  const [tab, setTab] = useState(initialTab);
+
+  useEffect(() => {
+    const t = searchParams.get('tab');
+    if (t && TABS.find(x => x.key === t)) setTab(t);
+  }, [searchParams]);
+
   const Active = TABS.find((t) => t.key === tab).Comp;
 
   return (

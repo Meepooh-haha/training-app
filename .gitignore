@@ -5,3 +5,5 @@ dist/
 *.db-wal
 .DS_Store
 .env
+test-output.pdf
+server/templates/pr.docx.bak

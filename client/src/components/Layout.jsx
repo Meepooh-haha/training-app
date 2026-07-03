@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
-import { LayoutDashboard, Database, CalendarRange, FileText, FileOutput, Receipt, ClipboardList, ClipboardCheck, Menu, BarChart3, Route, UserCheck } from 'lucide-react';
+import { LayoutDashboard, Database, CalendarRange, FileText, FileOutput, Receipt, ClipboardList, ClipboardCheck, Menu, BarChart3, Route, UserCheck, GitBranch, CalendarCheck } from 'lucide-react';
 
 const NAV = [
   { to: '/', label: 'แดชบอร์ด', icon: LayoutDashboard, end: true },
@@ -14,7 +14,8 @@ const NAV = [
   { type: 'section', label: 'พัฒนาบุคลากร' },
   { to: '/development/competency-scores', label: 'ประเมินสมรรถนะ', icon: UserCheck },
   { to: '/development/gap-analysis', label: 'Gap Analysis', icon: BarChart3 },
-  { to: '/development/roadmap', label: 'Training Roadmap', icon: Route },
+  { to: '/development/roadmap',   label: 'Training Roadmap',   icon: Route },
+  { to: '/development/workflow',      label: 'Training Workflow',  icon: GitBranch },
 ];
 
 export default function Layout() {

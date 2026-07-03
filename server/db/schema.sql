@@ -13,7 +13,8 @@ CREATE TABLE IF NOT EXISTS training_topics (
   type             TEXT,                 -- บรรยาย | บรรยายและปฏิบัติ
   duration_hours   INTEGER DEFAULT 0,
   duration_minutes INTEGER DEFAULT 0,
-  is_continuous    INTEGER DEFAULT 0     -- bool
+  is_continuous    INTEGER DEFAULT 0,    -- bool
+  speaker          TEXT
 );
 
 -- 1B: Courses (หลักสูตร)
@@ -305,6 +306,134 @@ CREATE TABLE IF NOT EXISTS competency_course_mapping (
   target_level   INTEGER CHECK(target_level BETWEEN 1 AND 5),
   UNIQUE(competency_id, course_code)
 );
+
+-- 4E-2: Org-level training projects (HR-SOP-003 lifecycle)
+-- current_step: 1=TNA, 2=แผนประจำปี, 3=ขออนุมัติ, 4=เตรียม-จัดอบรม, 5=ประเมินผล, 6=บันทึก-รายงาน
+CREATE TABLE IF NOT EXISTS training_projects (
+  id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  name              TEXT NOT NULL,
+  description       TEXT DEFAULT '',
+  course_code       TEXT REFERENCES courses(code),
+  request_id        INTEGER REFERENCES training_requests(id),
+  quarter           TEXT DEFAULT 'Q1' CHECK(quarter IN ('Q1','Q2','Q3','Q4')),
+  year              INTEGER DEFAULT 2569,
+  current_step      INTEGER DEFAULT 1 CHECK(current_step BETWEEN 1 AND 6),
+  participant_count INTEGER DEFAULT 0,
+  order_index       INTEGER DEFAULT 0,
+  notes             TEXT DEFAULT '',
+  created_at        TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at        TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ---------- MODULE 5: AVAILABILITY MATRIX ----------
+
+-- 5A: Instructors registry (internal employees or external vendors)
+CREATE TABLE IF NOT EXISTS instructors (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  source_type    TEXT NOT NULL CHECK(source_type IN ('internal','external')),
+  employee_id    TEXT REFERENCES employees(code),
+  vendor_id      INTEGER,
+  name           TEXT NOT NULL,
+  contact_phone  TEXT,
+  contact_email  TEXT,
+  created_at     TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at     TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 5B: Venues registry (internal rooms or external locations)
+CREATE TABLE IF NOT EXISTS venues (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  source_type TEXT NOT NULL CHECK(source_type IN ('internal','external')),
+  location_id INTEGER,
+  vendor_id   INTEGER,
+  name        TEXT NOT NULL,
+  address     TEXT,
+  capacity    INTEGER,
+  created_at  TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at  TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 5C: Availability slots — one row per entity × date × project
+-- entity_ref is TEXT to unify employees.code (TEXT PK) with
+-- instructors/venues ids stored as strings, avoiding type-collision FK
+CREATE TABLE IF NOT EXISTS availability_slots (
+  id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+  training_project_id INTEGER NOT NULL REFERENCES training_projects(id) ON DELETE CASCADE,
+  entity_type         TEXT NOT NULL CHECK(entity_type IN ('participant','instructor','venue')),
+  entity_ref          TEXT NOT NULL,
+  slot_date           TEXT NOT NULL,
+  status              TEXT NOT NULL DEFAULT 'available'
+                        CHECK(status IN ('available','unavailable','tentative')),
+  note                TEXT,
+  created_at          TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at          TEXT DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(training_project_id, entity_type, entity_ref, slot_date)
+);
+
+-- 5D: Candidate Dates — dates shortlisted for scheduling coordination
+CREATE TABLE IF NOT EXISTS candidate_dates (
+  id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+  training_project_id INTEGER NOT NULL REFERENCES training_projects(id) ON DELETE CASCADE,
+  date                TEXT NOT NULL,
+  note                TEXT,
+  created_at          TEXT DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(training_project_id, date)
+);
+
+-- ---------- MODULE 6: VENDOR REGISTRATION ----------
+
+-- 6A: Vendors master data (วิทยากรภายนอก / สถานที่ / อื่นๆ)
+CREATE TABLE IF NOT EXISTS vendors (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  vendor_name     TEXT NOT NULL,
+  tax_id          TEXT,                        -- nullable: บุคคลธรรมดาบางรายไม่มีเลขผู้เสียภาษี
+  vendor_type     TEXT NOT NULL CHECK (vendor_type IN ('instructor', 'venue', 'other')),
+  is_registered   INTEGER NOT NULL DEFAULT 0,  -- 0 = ยังไม่ขึ้นทะเบียน, 1 = ขึ้นทะเบียนแล้ว
+  registered_date TEXT,                        -- ISO date; NULL เมื่อ is_registered กลับเป็น 0
+  contact_name    TEXT,
+  contact_phone   TEXT,
+  contact_email   TEXT,
+  created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- กันสร้าง vendor ซ้ำด้วย tax_id (partial index: หลาย NULL ได้ — บุคคลธรรมดาไม่มี tax_id)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_vendors_tax_id
+  ON vendors (tax_id) WHERE tax_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_vendors_type_status
+  ON vendors (vendor_type, is_registered);
+
+-- 6B: Vendor documents checklist (4 ประเภทต่อ vendor)
+CREATE TABLE IF NOT EXISTS vendor_documents (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  vendor_id     INTEGER NOT NULL REFERENCES vendors(id) ON DELETE CASCADE,
+  doc_type      TEXT NOT NULL CHECK (doc_type IN ('book_bank', 'pp20', 'company_cert', 'vendor_form')),
+  file_data     TEXT,                          -- base64 สำหรับ MVP; เปลี่ยน storage_type เป็น 'url' เมื่อย้าย blob storage
+  storage_type  TEXT NOT NULL DEFAULT 'base64' CHECK (storage_type IN ('base64', 'url')),
+  file_format   TEXT CHECK (file_format IN ('image', 'pdf')),
+  status        TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'received', 'verified')),
+  received_date TEXT,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (vendor_id, doc_type)                 -- 1 แถวต่อประเภทเอกสารต่อ vendor
+);
+
+CREATE INDEX IF NOT EXISTS idx_vendor_documents_vendor
+  ON vendor_documents (vendor_id);
+
+-- Index vendor_id บน instructors/venues (คอลัมน์มีอยู่แล้ว ไม่ต้อง ALTER TABLE)
+CREATE INDEX IF NOT EXISTS idx_instructors_vendor ON instructors (vendor_id);
+CREATE INDEX IF NOT EXISTS idx_venues_vendor       ON venues (vendor_id);
+
+-- 5E: Instructor → Topic mapping (หัวข้ออบรมที่วิทยากรสอนได้)
+CREATE TABLE IF NOT EXISTS instructor_topics (
+  instructor_id INTEGER NOT NULL REFERENCES instructors(id) ON DELETE CASCADE,
+  topic_code    TEXT    NOT NULL,
+  PRIMARY KEY (instructor_id, topic_code)
+);
+
+-- ---------- MODULE 4F (continued): Employee Roadmap ----------
 
 -- 4F: Employee training roadmap (IDP)
 CREATE TABLE IF NOT EXISTS employee_roadmaps (

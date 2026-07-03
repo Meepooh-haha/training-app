@@ -1,11 +1,40 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
+import * as XLSX from 'xlsx';
 import toast from 'react-hot-toast';
-import { Pencil, Trash2, Plus, Search, FileSpreadsheet, ChevronDown, ChevronUp } from 'lucide-react';
+import { Pencil, Trash2, Plus, Search, FileSpreadsheet, ChevronDown, ChevronUp, Upload } from 'lucide-react';
 import { api } from '../../lib/api.js';
 import { LEVEL_OPTIONS } from '../../lib/competency-levels.js';
 import Modal, { ModalFooter } from '../../components/Modal.jsx';
 import { Button, Input, Select, Field, Textarea, Badge, Card } from '../../components/ui.jsx';
 import { exportToExcel } from '../../lib/excel-generator.js';
+
+const HEADER_MAP = {
+  'รหัส': 'competency_code', 'Competency Code': 'competency_code', 'รหัสสมรรถนะ': 'competency_code',
+  'ชื่อสมรรถนะ': 'name', 'Name': 'name', 'ชื่อ': 'name',
+  'ประเภท': 'type', 'Type': 'type',
+  'คำจำกัดความ': 'description', 'Description': 'description',
+  'ระดับ 1': 'level_1_desc', 'Level 1': 'level_1_desc',
+  'ระดับ 2': 'level_2_desc', 'Level 2': 'level_2_desc',
+  'ระดับ 3': 'level_3_desc', 'Level 3': 'level_3_desc',
+  'ฝ่าย': 'department_codes', 'Departments': 'department_codes', 'รหัสฝ่าย': 'department_codes',
+  'Required Level': 'default_required_level', 'ระดับที่ต้องการ': 'default_required_level',
+};
+
+const TYPE_MAP = {
+  organizational: 'organizational', 'องค์กร': 'organizational',
+  functional: 'functional', 'สายงาน': 'functional', 'เฉพาะหน้าที่': 'functional',
+  leadership: 'leadership', 'ผู้นำ': 'leadership', 'ภาวะผู้นำ': 'leadership',
+};
+
+const TYPE_LABEL = {
+  organizational: 'Organizational', functional: 'Functional', leadership: 'Leadership',
+};
+
+const TEMPLATE_ROWS = [
+  { รหัส: 'ORG-001', ชื่อสมรรถนะ: 'การสื่อสาร', ประเภท: 'organizational', คำจำกัดความ: 'สื่อสารได้มีประสิทธิภาพ', 'ระดับ 1': 'รับรู้การสื่อสารพื้นฐาน', 'ระดับ 2': 'สื่อสารได้ชัดเจน', 'ระดับ 3': 'โค้ชผู้อื่นด้านการสื่อสารได้', ฝ่าย: '', 'Required Level': '' },
+  { รหัส: 'LD-001', ชื่อสมรรถนะ: 'ภาวะผู้นำ', ประเภท: 'leadership', คำจำกัดความ: 'นำทีมและสร้างแรงบันดาลใจ', 'ระดับ 1': 'รู้จักบทบาทผู้นำ', 'ระดับ 2': 'นำทีมเล็กได้', 'ระดับ 3': 'พัฒนา Leader รุ่นถัดไปได้', ฝ่าย: '', 'Required Level': '' },
+  { รหัส: 'FN-HR-001', ชื่อสมรรถนะ: 'การสรรหาบุคลากร', ประเภท: 'functional', คำจำกัดความ: 'กระบวนการ Recruitment', 'ระดับ 1': 'รู้จัก JD เบื้องต้น', 'ระดับ 2': 'ทำ Recruitment ได้', 'ระดับ 3': 'วางกลยุทธ์ได้', ฝ่าย: 'HR', 'Required Level': '2' },
+];
 
 const EMPTY = {
   type: 'organizational',
@@ -15,7 +44,7 @@ const EMPTY = {
   max_level: 3,
   department_ids: [],
   position_ids: [],
-  default_required_level: 3,
+  default_required_level: 1,
   level_1_desc: '',
   level_2_desc: '',
   level_3_desc: '',
@@ -34,6 +63,9 @@ export default function CompetencyTab() {
   const [errors, setErrors] = useState({});
   const [saving, setSaving] = useState(false);
   const [showLevels, setShowLevels] = useState(false);
+  const [importing, setImporting] = useState(null);
+  const [importSaving, setImportSaving] = useState(false);
+  const fileRef = useRef(null);
 
   const load = () => api.get('/competencies').then(setRows).catch(e => toast.error(e.message));
 
@@ -71,7 +103,7 @@ export default function CompetencyTab() {
       max_level: 3,
       department_ids: deptIds,
       position_ids: (row.pos_ids || []).filter(pid => validPosIds.has(pid)),
-      default_required_level: 3,
+      default_required_level: 1,
       level_1_desc: row.level_1_desc || '',
       level_2_desc: row.level_2_desc || '',
       level_3_desc: row.level_3_desc || '',
@@ -118,6 +150,78 @@ export default function CompetencyTab() {
     } catch (e) {
       toast.error(e.message);
     }
+  }
+
+  function openImport() {
+    fileRef.current.value = '';
+    fileRef.current.click();
+  }
+
+  function handleFile(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const wb = XLSX.read(ev.target.result, { type: 'array' });
+        const sheet = wb.Sheets[wb.SheetNames[0]];
+        const allRows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+
+        let colMap = null;
+        let headerRowIdx = -1;
+        for (let i = 0; i < Math.min(allRows.length, 5); i++) {
+          const map = {};
+          allRows[i].forEach((cell, j) => {
+            const field = HEADER_MAP[String(cell).trim()];
+            if (field) map[j] = field;
+          });
+          if (Object.values(map).includes('competency_code')) {
+            colMap = map;
+            headerRowIdx = i;
+            break;
+          }
+        }
+        if (!colMap) return toast.error('ไม่พบคอลัมน์ "รหัส" — ตรวจสอบชื่อหัวคอลัมน์');
+
+        let skipped = 0;
+        const validRows = [];
+        for (let i = headerRowIdx + 1; i < allRows.length; i++) {
+          const rawRow = allRows[i];
+          const row = {};
+          for (const [colIdx, field] of Object.entries(colMap)) {
+            row[field] = String(rawRow[colIdx] ?? '').trim();
+          }
+          if (!row.competency_code || !row.name) { skipped++; continue; }
+          const normalizedType = TYPE_MAP[row.type?.toLowerCase?.().trim()] || row.type?.toLowerCase?.().trim();
+          if (!['organizational', 'functional', 'leadership'].includes(normalizedType)) { skipped++; continue; }
+          row.type = normalizedType;
+          validRows.push(row);
+        }
+        if (!validRows.length) return toast.error('ไม่พบข้อมูลที่ถูกต้องในไฟล์');
+        setImporting({ rows: validRows, skipped });
+      } catch {
+        toast.error('อ่านไฟล์ไม่ได้');
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  async function confirmImport() {
+    setImportSaving(true);
+    try {
+      const { count } = await api.post('/competencies/import', { rows: importing.rows });
+      toast.success(`นำเข้าสำเร็จ ${count} รายการ`);
+      setImporting(null);
+      load();
+    } catch (e) {
+      toast.error(e.message);
+    } finally {
+      setImportSaving(false);
+    }
+  }
+
+  function downloadTemplate() {
+    exportToExcel(TEMPLATE_ROWS, 'competency-template', 'Competency Dictionary');
   }
 
   function toggleDept(id) {
@@ -169,6 +273,8 @@ export default function CompetencyTab() {
 
   return (
     <div className="space-y-4">
+      <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleFile} />
+
       {/* Filter pills + toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex gap-2">
@@ -182,13 +288,19 @@ export default function CompetencyTab() {
             <Search size={15} className="absolute left-2.5 top-2.5 text-slate-400" />
             <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="ค้นหา..." className="h-9 w-44 pl-8" />
           </div>
+          <Button variant="secondary" size="sm" onClick={downloadTemplate} title="ดาวน์โหลด Template Excel">
+            <FileSpreadsheet size={15} /> Template
+          </Button>
           <Button variant="secondary" size="sm" onClick={() =>
             exportToExcel(
               filtered.map(r => ({ รหัส: r.competency_code, ชื่อสมรรถนะ: r.name, ประเภท: r.type })),
               'competencies', 'Competency Dictionary'
             )
           }>
-            <FileSpreadsheet size={15} /> Excel
+            <FileSpreadsheet size={15} /> Export
+          </Button>
+          <Button variant="secondary" size="sm" onClick={openImport}>
+            <Upload size={15} /> Import Excel
           </Button>
           <Button size="sm" onClick={openNew}>
             <Plus size={15} /> เพิ่ม Competency
@@ -254,6 +366,60 @@ export default function CompetencyTab() {
           </table>
         </div>
       </Card>
+
+      {/* Import Preview Modal */}
+      <Modal
+        open={!!importing}
+        onClose={() => setImporting(null)}
+        title={`ตรวจสอบข้อมูลก่อนนำเข้า (${importing?.rows.length ?? 0} รายการ)`}
+        wide
+        footer={
+          <ModalFooter
+            onCancel={() => setImporting(null)}
+            onSave={confirmImport}
+            saving={importSaving}
+            saveLabel="ยืนยันนำเข้า"
+          />
+        }
+      >
+        {importing && (
+          <div className="space-y-3">
+            {importing.skipped > 0 && (
+              <p className="text-sm text-amber-600">ข้าม {importing.skipped} แถวที่ไม่สมบูรณ์ (ไม่มีรหัส/ชื่อ/ประเภทไม่ถูกต้อง)</p>
+            )}
+            <p className="text-sm text-slate-500">รหัสที่มีอยู่แล้วจะถูกอัปเดต — รหัสใหม่จะถูกเพิ่ม</p>
+            <div className="max-h-72 overflow-y-auto rounded border border-slate-200">
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 bg-slate-50 text-left text-slate-500">
+                  <tr>
+                    <th className="px-3 py-2 font-medium">รหัส</th>
+                    <th className="px-3 py-2 font-medium">ชื่อสมรรถนะ</th>
+                    <th className="px-3 py-2 font-medium">ประเภท</th>
+                    <th className="px-3 py-2 font-medium">ฝ่าย</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {importing.rows.slice(0, 50).map((r, i) => (
+                    <tr key={i}>
+                      <td className="px-3 py-1.5 font-mono text-xs text-slate-600">{r.competency_code}</td>
+                      <td className="px-3 py-1.5 font-medium">{r.name}</td>
+                      <td className="px-3 py-1.5">
+                        <Badge color={r.type === 'organizational' ? 'blue' : r.type === 'leadership' ? 'purple' : 'green'}>
+                          {TYPE_LABEL[r.type] ?? r.type}
+                        </Badge>
+                      </td>
+                      <td className="px-3 py-1.5 text-slate-500 text-xs">{r.department_codes || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {importing.rows.length > 50 && (
+              <p className="text-xs text-slate-400">แสดง 50 รายการแรก จากทั้งหมด {importing.rows.length} รายการ</p>
+            )}
+          </div>
+        )}
+      </Modal>
 
       {/* Add / Edit Modal */}
       <Modal

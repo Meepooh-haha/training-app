@@ -1,8 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import toast from 'react-hot-toast';
-import { FileDown, RefreshCw, AlertTriangle } from 'lucide-react';
-import { exportPRFormFull } from '../lib/pdf-generator.js';
-import { ensureThaiFont } from '../lib/thai-font.js';
+import { FileDown, RefreshCw } from 'lucide-react';
 import { Field, Input, Textarea, Button, Card } from '../components/ui.jsx';
 
 const EMPTY_ITEM = { gl_code: '', item_code: '', description: '', qty: '', unit: '', unit_price: '' };
@@ -23,6 +21,7 @@ const EMPTY = {
   requester: '',
   expense_type: '',
   items: Array.from({ length: 10 }, () => ({ ...EMPTY_ITEM })),
+  wht: '',
   reason: '',
   sig1_name: '',
   sig1_title: '',
@@ -39,9 +38,6 @@ export default function PRForm() {
   const [form, setForm] = useState(EMPTY);
   const [errors, setErrors] = useState({});
   const [exporting, setExporting] = useState(false);
-  const [fontReady, setFontReady] = useState(null);
-
-  useEffect(() => { ensureThaiFont().then(setFontReady); }, []);
 
   const set = (k, v) => {
     setForm((f) => ({ ...f, [k]: v }));
@@ -60,7 +56,7 @@ export default function PRForm() {
     0
   );
   const vat = subtotal * 0.07;
-  const wht = subtotal * 0.03;
+  const wht = Number(form.wht) || 0;
   const total = subtotal + vat - wht;
 
   function validate() {
@@ -75,7 +71,19 @@ export default function PRForm() {
     if (!validate()) return toast.error('กรุณากรอกเลขที่เอกสารและวันที่');
     setExporting(true);
     try {
-      await exportPRFormFull(form);
+      const res = await fetch('/api/pr/export-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      });
+      if (!res.ok) throw new Error(`Server error ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `PR-${form.pr_no || 'draft'}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
     } catch (e) {
       console.error(e);
       toast.error(`เกิดข้อผิดพลาด: ${e.message}`);
@@ -89,8 +97,6 @@ export default function PRForm() {
 
   return (
     <div className="space-y-5">
-      {fontReady === false && <FontWarning />}
-
       <div className="flex items-start justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">ออกใบ PR</h1>
@@ -108,13 +114,13 @@ export default function PRForm() {
           <Field label={<>เลขที่เอกสาร / PR No. <Req k="pr_no" /></>}>
             <Input value={form.pr_no} invalid={errors.pr_no} onChange={(e) => set('pr_no', e.target.value)} />
           </Field>
-          <Field label={<>วันที่ / Date <Req k="date" /></>}>
+          <Field label={<>วันที่สร้างเอกสาร / Date <Req k="date" /></>}>
             <Input type="date" value={form.date} invalid={errors.date} onChange={(e) => set('date', e.target.value)} />
           </Field>
           <Field label="ฝ่าย / Department">
             <Input value={form.department} onChange={(e) => set('department', e.target.value)} />
           </Field>
-          <Field label="วันที่ต้องการรับสินค้า / Required Date">
+          <Field label="วันที่ต้องการสินค้า / Required Date">
             <Input type="date" value={form.required_date} onChange={(e) => set('required_date', e.target.value)} />
           </Field>
           <Field label="ผู้ขอซื้อ / Requester">
@@ -196,8 +202,18 @@ export default function PRForm() {
                 <td className="px-4 py-2 text-right font-medium text-slate-800">{money(vat)} ฿</td>
               </tr>
               <tr className="border-b border-slate-100">
-                <td className="px-4 py-2 text-slate-500">หักภาษี ณ ที่จ่าย 3%</td>
-                <td className="px-4 py-2 text-right font-medium text-slate-800">({money(wht)}) ฿</td>
+                <td className="px-4 py-2 text-slate-500 align-middle">หักภาษี ณ ที่จ่าย 3%</td>
+                <td className="px-2 py-1.5 text-right">
+                  <Input
+                    className="h-8 text-right text-sm"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={form.wht}
+                    onChange={(e) => set('wht', e.target.value)}
+                    placeholder="0.00"
+                  />
+                </td>
               </tr>
               <tr className="bg-blue-50">
                 <td className="px-4 py-2.5 font-semibold text-slate-700">จำนวนเงินรวมทั้งหมด / TOTAL AMOUNT</td>
@@ -212,7 +228,7 @@ export default function PRForm() {
       <Card className="p-5">
         <h2 className="mb-1 font-semibold text-slate-800">เหตุผลการขอซื้อ / Reason for Request</h2>
         <p className="mb-3 text-xs text-slate-500">
-          ระบุเหตุผลในการบันทึกปัญหา, วัตถุประสงค์และเหตุผลในการขอซื้อ
+          ระบุเดือนในการบันทึกบัญชี, วัตถุประสงค์ในการขอซื้อ
         </p>
         <Textarea
           rows={3}
@@ -251,22 +267,6 @@ export default function PRForm() {
           {exporting ? 'กำลังสร้างเอกสาร...' : 'ออกใบ PR (PDF)'}
         </Button>
       </Card>
-    </div>
-  );
-}
-
-function FontWarning() {
-  return (
-    <div className="flex gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-      <AlertTriangle size={18} className="mt-0.5 shrink-0 text-amber-500" />
-      <div>
-        <p className="font-semibold">ไม่พบฟอนต์ภาษาไทย — เอกสาร PDF จะออกไม่ได้</p>
-        <p className="mt-0.5 text-xs">
-          วางไฟล์ <code className="rounded bg-amber-100 px-1 font-mono">THSarabunNew.ttf</code> ใน{' '}
-          <code className="rounded bg-amber-100 px-1 font-mono">training-app/client/public/fonts/</code>{' '}
-          แล้วกดรีเฟรชหน้าเว็บ
-        </p>
-      </div>
     </div>
   );
 }

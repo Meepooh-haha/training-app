@@ -16,6 +16,13 @@ import Evaluation from './pages/Evaluation.jsx';
 import GapAnalysisPage from './pages/Development/GapAnalysisPage.jsx';
 import TrainingRoadmapPage from './pages/Development/TrainingRoadmapPage.jsx';
 import CompetencyScoresPage from './pages/Development/CompetencyScoresPage.jsx';
+import TrainingWorkflowPage from './pages/Development/TrainingWorkflowPage.jsx';
+import WorkflowDetailPage from './pages/Development/WorkflowDetailPage.jsx';
+import AvailabilityMatrixPage from './pages/Development/AvailabilityMatrixPage.jsx';
+import VendorCheckPage from './pages/Development/VendorCheckPage.jsx';
+import InvoiceIntakePage from './pages/Development/InvoiceIntakePage.jsx';
+import PRIssuancePage from './pages/Development/PRIssuancePage.jsx';
+import MemoIssuancePage from './pages/Development/MemoIssuancePage.jsx';
 
 // Preload Thai font immediately so it's ready before any export button is clicked
 ensureThaiFont();
@@ -37,6 +44,13 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <Route path="development/competency-scores" element={<CompetencyScoresPage />} />
           <Route path="development/gap-analysis" element={<GapAnalysisPage />} />
           <Route path="development/roadmap" element={<TrainingRoadmapPage />} />
+          <Route path="development/workflow" element={<TrainingWorkflowPage />} />
+          <Route path="development/workflow/:projectId" element={<WorkflowDetailPage />} />
+          <Route path="development/availability" element={<AvailabilityMatrixPage />} />
+          <Route path="development/vendor-check" element={<VendorCheckPage />} />
+          <Route path="development/invoice-intake" element={<InvoiceIntakePage />} />
+          <Route path="development/pr-issuance" element={<PRIssuancePage />} />
+          <Route path="development/memo-issuance" element={<MemoIssuancePage />} />
         </Route>
       </Routes>
     </BrowserRouter>

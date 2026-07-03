@@ -21,7 +21,7 @@ export default function PositionsTab() {
   const [profilePos, setProfilePos] = useState(null);
   const [profile, setProfile] = useState([]);
   const [allCompetencies, setAllCompetencies] = useState([]);
-  const [addForm, setAddForm] = useState({ competency_id: '', required_level: 3 });
+  const [addForm, setAddForm] = useState({ competency_id: '', required_level: 1 });
   const [addingSaving, setAddingSaving] = useState(false);
 
   const load = () => api.get('/positions').then(setRows).catch(e => toast.error(e.message));
@@ -76,7 +76,7 @@ export default function PositionsTab() {
 
   async function openProfile(pos) {
     setProfilePos(pos);
-    setAddForm({ competency_id: '', required_level: 3 });
+    setAddForm({ competency_id: '', required_level: 1 });
     const [prof, comps] = await Promise.all([
       api.get(`/positions/${pos.id}/competencies`),
       api.get('/competencies'),
@@ -100,7 +100,7 @@ export default function PositionsTab() {
       });
       const updated = await api.get(`/positions/${profilePos.id}/competencies`);
       setProfile(updated);
-      setAddForm({ competency_id: '', required_level: 3 });
+      setAddForm({ competency_id: '', required_level: 1 });
     } catch (e) {
       toast.error(e.message);
     } finally {

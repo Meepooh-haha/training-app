@@ -5,7 +5,7 @@ import DataGrid from '../../components/DataGrid.jsx';
 import Modal, { ModalFooter } from '../../components/Modal.jsx';
 import { Field, Input, Select, Badge } from '../../components/ui.jsx';
 
-const EMPTY = { code: '', name_th: '', name_en: '', type: 'บรรยาย', duration_hours: 0, duration_minutes: 0, is_continuous: false };
+const EMPTY = { code: '', name_th: '', name_en: '', type: 'บรรยาย', duration_hours: 0, duration_minutes: 0, is_continuous: false, speaker: '' };
 const REQUIRED = ['code', 'name_th'];
 
 export default function TopicsTab() {
@@ -78,6 +78,7 @@ export default function TopicsTab() {
             รหัส: r.code,
             ชื่อ: r.name_th,
             'ชื่อ (EN)': r.name_en,
+            วิทยากร: r.speaker || '',
             ประเภท: r.type,
             ชั่วโมง: r.duration_hours,
             นาที: r.duration_minutes,
@@ -87,6 +88,7 @@ export default function TopicsTab() {
         columns={[
           { key: 'code', header: 'รหัส', className: 'font-medium' },
           { key: 'name_th', header: 'ชื่อหัวข้อ' },
+          { key: 'speaker', header: 'วิทยากร', render: (r) => r.speaker || <span className="text-slate-400">-</span> },
           { key: 'type', header: 'ประเภท' },
           { key: 'duration', header: 'ระยะเวลา', render: (r) => `${r.duration_hours} ชม. ${r.duration_minutes} น.` },
           { key: 'is_continuous', header: 'ต่อเนื่อง', render: (r) => (r.is_continuous ? <Badge color="blue">ต่อเนื่อง</Badge> : <span className="text-slate-400">-</span>) },
@@ -114,6 +116,9 @@ export default function TopicsTab() {
           </Field>
           <Field label="ชื่อหัวข้อ (อังกฤษ)">
             <Input value={form.name_en} onChange={(e) => set('name_en', e.target.value)} />
+          </Field>
+          <Field label="วิทยากร" className="sm:col-span-2">
+            <Input value={form.speaker} onChange={(e) => set('speaker', e.target.value)} placeholder="ชื่อวิทยากร / หน่วยงาน" />
           </Field>
           <Field label="ระยะเวลา (ชั่วโมง)">
             <Input type="number" min="0" value={form.duration_hours} onChange={(e) => set('duration_hours', e.target.value)} />

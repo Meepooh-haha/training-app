@@ -87,11 +87,41 @@ const POSITIONS = [
 ];
 
 export async function initDb() {
+  // PRAGMA foreign_keys is session-level in libSQL — must be set before any FK-dependent DDL.
+  // For runtime DELETE with ON DELETE CASCADE/SET NULL, include this PRAGMA in the same batch.
+  await db.execute('PRAGMA foreign_keys = ON');
+
   const schema = readFileSync(join(__dirname, 'schema.sql'), 'utf-8');
   await db.executeMultiple(schema);
 
+  // Vendor updated_at triggers — must be separate db.execute() calls because
+  // BEGIN...END bodies contain semicolons that break executeMultiple's splitter
+  await db.execute(`
+    CREATE TRIGGER IF NOT EXISTS vendors_updated_at
+    AFTER UPDATE ON vendors
+    BEGIN
+      UPDATE vendors SET updated_at = datetime('now') WHERE id = NEW.id;
+    END
+  `);
+  await db.execute(`
+    CREATE TRIGGER IF NOT EXISTS vendor_documents_updated_at
+    AFTER UPDATE ON vendor_documents
+    BEGIN
+      UPDATE vendor_documents SET updated_at = datetime('now') WHERE id = NEW.id;
+    END
+  `);
+
   // Migrations
   try { await db.execute('ALTER TABLE courses ADD COLUMN competency_type TEXT'); } catch {}
+  try { await db.execute('ALTER TABLE training_topics ADD COLUMN speaker TEXT'); } catch {}
+  try { await db.execute('ALTER TABLE vendors ADD COLUMN drive_folder_url TEXT'); } catch {}
+  // training_projects table (idempotent — schema.sql already has IF NOT EXISTS)
+  try {
+    await db.execute('ALTER TABLE training_projects ADD COLUMN order_index INTEGER DEFAULT 0');
+  } catch {}
+  try { await db.execute('ALTER TABLE instructors ADD COLUMN notes TEXT'); } catch {}
+  try { await db.execute('ALTER TABLE venues ADD COLUMN notes TEXT'); } catch {}
+  try { await db.execute("ALTER TABLE training_projects ADD COLUMN notes TEXT DEFAULT ''"); } catch {}
 
   const compRow = await q.get("SELECT sql FROM sqlite_master WHERE type='table' AND name='competencies'");
   if (compRow && !String(compRow.sql).includes("'leadership'")) {
