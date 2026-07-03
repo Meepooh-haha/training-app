@@ -1,20 +1,21 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import { FileDown, RefreshCw } from 'lucide-react';
-import { Field, Input, Textarea, Button, Card } from '../components/ui.jsx';
+import { Field, Input, Select, Textarea, Button, Card } from '../components/ui.jsx';
 
 const EMPTY_ITEM = { gl_code: '', item_code: '', description: '', qty: '', unit: '', unit_price: '' };
 
-function makePrNo() {
-  const now = new Date();
-  const y = now.getFullYear() + 543;
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  const d = String(now.getDate()).padStart(2, '0');
-  return `PR-${y}${m}${d}-001`;
-}
+const PR_TYPES = [
+  { value: '1', label: '1 — จัดซื้อ / Purchasing' },
+  { value: '2', label: '2 — จัดจ้าง / Contracting' },
+];
 
+// pr_no is assigned by the server at export time (see server/routes/pr.js
+// issuePrNumber) — never generated or edited client-side, so the locked
+// running sequence can't be skipped or collided with by a typo.
 const EMPTY = {
-  pr_no: makePrNo(),
+  pr_no: '',
+  pr_type: '1',
   date: new Date().toISOString().slice(0, 10),
   department: '',
   required_date: '',
@@ -38,6 +39,18 @@ export default function PRForm() {
   const [form, setForm] = useState(EMPTY);
   const [errors, setErrors] = useState({});
   const [exporting, setExporting] = useState(false);
+  const [departments, setDepartments] = useState([]);
+
+  useEffect(() => {
+    fetch('/api/departments')
+      .then((r) => r.json())
+      .then((list) => {
+        setDepartments(list);
+        const hr = list.find((d) => d.code === 'HR');
+        if (hr) setForm((f) => (f.department ? f : { ...f, department: hr.code }));
+      })
+      .catch(() => {});
+  }, []);
 
   const set = (k, v) => {
     setForm((f) => ({ ...f, [k]: v }));
@@ -61,29 +74,37 @@ export default function PRForm() {
 
   function validate() {
     const errs = {};
-    if (!form.pr_no.trim()) errs.pr_no = true;
     if (!form.date) errs.date = true;
+    if (!form.department) errs.department = true;
+    if (!form.pr_type) errs.pr_type = true;
     setErrors(errs);
     return Object.keys(errs).length === 0;
   }
 
   async function handleExport() {
-    if (!validate()) return toast.error('กรุณากรอกเลขที่เอกสารและวันที่');
+    if (!validate()) return toast.error('กรุณาเลือกฝ่าย ประเภท PR และกรอกวันที่ให้ครบ');
     setExporting(true);
     try {
+      const { pr_no, ...payload } = form; // pr_no is always server-assigned
       const res = await fetch('/api/pr/export-pdf', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
+        body: JSON.stringify(payload),
       });
-      if (!res.ok) throw new Error(`Server error ${res.status}`);
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error || `Server error ${res.status}`);
+      }
+      const issuedPrNo = res.headers.get('X-Pr-No') || 'draft';
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `PR-${form.pr_no || 'draft'}.pdf`;
+      a.download = `${issuedPrNo}.pdf`;
       a.click();
       URL.revokeObjectURL(url);
+      setForm((f) => ({ ...f, pr_no: issuedPrNo }));
+      toast.success(`ออกเลขที่เอกสาร ${issuedPrNo} เรียบร้อย`);
     } catch (e) {
       console.error(e);
       toast.error(`เกิดข้อผิดพลาด: ${e.message}`);
@@ -102,7 +123,7 @@ export default function PRForm() {
           <h1 className="text-2xl font-bold text-slate-800">ออกใบ PR</h1>
           <p className="text-sm text-slate-500">ใบขอซื้อ / Purchase Requisition</p>
         </div>
-        <Button variant="ghost" size="sm" onClick={() => { setForm({ ...EMPTY, pr_no: makePrNo() }); setErrors({}); }}>
+        <Button variant="ghost" size="sm" onClick={() => { setForm({ ...EMPTY, department: form.department }); setErrors({}); }}>
           <RefreshCw size={14} /> ล้างฟอร์ม
         </Button>
       </div>
@@ -111,14 +132,30 @@ export default function PRForm() {
       <Card className="p-5">
         <h2 className="mb-4 font-semibold text-slate-800">ข้อมูลทั่วไป</h2>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <Field label={<>เลขที่เอกสาร / PR No. <Req k="pr_no" /></>}>
-            <Input value={form.pr_no} invalid={errors.pr_no} onChange={(e) => set('pr_no', e.target.value)} />
+          <Field label="เลขที่เอกสาร / PR No.">
+            <Input
+              value={form.pr_no || 'จะออกเลขอัตโนมัติเมื่อกด Export'}
+              disabled
+              className="text-slate-400"
+            />
           </Field>
           <Field label={<>วันที่สร้างเอกสาร / Date <Req k="date" /></>}>
             <Input type="date" value={form.date} invalid={errors.date} onChange={(e) => set('date', e.target.value)} />
           </Field>
-          <Field label="ฝ่าย / Department">
-            <Input value={form.department} onChange={(e) => set('department', e.target.value)} />
+          <Field label={<>ฝ่าย / Department <Req k="department" /></>}>
+            <Select value={form.department} invalid={errors.department} onChange={(e) => set('department', e.target.value)}>
+              <option value="">— เลือกฝ่าย —</option>
+              {departments.map((d) => (
+                <option key={d.code} value={d.code}>{d.code} — {d.name}</option>
+              ))}
+            </Select>
+          </Field>
+          <Field label={<>ประเภท PR / PR Type <Req k="pr_type" /></>}>
+            <Select value={form.pr_type} invalid={errors.pr_type} onChange={(e) => set('pr_type', e.target.value)}>
+              {PR_TYPES.map((t) => (
+                <option key={t.value} value={t.value}>{t.label}</option>
+              ))}
+            </Select>
           </Field>
           <Field label="วันที่ต้องการสินค้า / Required Date">
             <Input type="date" value={form.required_date} onChange={(e) => set('required_date', e.target.value)} />
@@ -266,6 +303,11 @@ export default function PRForm() {
           <FileDown size={18} />
           {exporting ? 'กำลังสร้างเอกสาร...' : 'ออกใบ PR (PDF)'}
         </Button>
+        {form.pr_no && (
+          <p className="mt-3 text-sm text-slate-600">
+            เลขที่เอกสารที่ออกล่าสุด: <span className="font-semibold text-slate-800">{form.pr_no}</span>
+          </p>
+        )}
       </Card>
     </div>
   );

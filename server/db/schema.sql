@@ -450,3 +450,24 @@ CREATE TABLE IF NOT EXISTS employee_roadmaps (
   updated_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
   UNIQUE(employee_code, competency_id)
 );
+
+-- ---------- MODULE 7: PURCHASE REQUISITION NUMBERING ----------
+
+-- 7A: PR number ledger. One row per issued number — this table IS the
+-- running counter (next seq = MAX(seq)+1 per department+pr_type) and the
+-- audit trail in one place. Numbers are never deleted or reused: a
+-- mistaken entry is marked status='void' and the next real request still
+-- gets the next seq, so gaps are traceable instead of silently reused.
+CREATE TABLE IF NOT EXISTS purchase_requisitions (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  pr_no       TEXT NOT NULL UNIQUE,
+  department  TEXT NOT NULL,
+  pr_type     INTEGER NOT NULL CHECK(pr_type IN (1, 2)),  -- 1=จัดซื้อ (purchasing), 2=จัดจ้าง (contracting)
+  seq         INTEGER NOT NULL,
+  requester   TEXT,
+  status      TEXT NOT NULL DEFAULT 'issued' CHECK(status IN ('issued', 'void')),
+  void_reason TEXT,
+  issued_at   TEXT NOT NULL DEFAULT (datetime('now')),
+  voided_at   TEXT,
+  UNIQUE(department, pr_type, seq)
+);
