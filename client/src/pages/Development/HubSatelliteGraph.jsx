@@ -4,14 +4,14 @@ import { Stamp, Users, ClipboardCheck, Trophy, X } from 'lucide-react';
 import { workflowHubs } from '../../config/workflowHubs.js';
 import { api } from '../../lib/api.js';
 
-// Canvas coordinate system: 1000 × 320 SVG units.
+// Canvas coordinate system: CANVAS_W × CANVAS_H SVG units (CANVAS_H, HUB_Y and
+// HUB_CX are derived below from the actual satellite layout so the deepest
+// configured chain never clips the canvas edge — see the "canvas sizing"
+// block after getSatelliteOffsets).
 // Hub centers sit at HUB_Y; satellites orbit above them.
 // HTML divs are positioned via CSS percentages — the SVG layer only draws lines.
 const CANVAS_W  = 1000;
-const CANVAS_H  = 320;
-const HUB_Y     = 200;   // hub center y (SVG units)
 const ORBIT_R   = 90;    // satellite orbit radius (SVG units)
-const HUB_CX    = [125, 375, 625, 875]; // hub center x per index (SVG units)
 const HUB_R_SVG = 52;    // approximate hub radius in SVG units (for line endpoints)
 
 const ICONS = { approve: Stamp, execute: Users, evaluate: ClipboardCheck, record: Trophy };
@@ -28,19 +28,98 @@ const LABEL_COLOR = {
   planned:     '#9B9491',
 };
 
-// Returns {x, y} offsets from hub center for each satellite, in SVG units.
-// Arc is centered at 270° (directly above), spreads symmetrically.
-function getSatelliteOffsets(count) {
-  if (count === 0) return [];
-  const arcByCount = [0, 0, 60, 90, 120, 140];
-  const arc = arcByCount[Math.min(count, arcByCount.length - 1)];
-  return Array.from({ length: count }, (_, i) => {
-    const frac = count === 1 ? 0.5 : i / (count - 1);
-    const deg  = 270 - arc / 2 + frac * arc;
-    const rad  = deg * (Math.PI / 180);
-    return { x: Math.cos(rad) * ORBIT_R, y: Math.sin(rad) * ORBIT_R };
+// Returns {x, y} offsets from hub center for each satellite, in SVG units,
+// laid out as a radial tree: depth = distance from the hub along the
+// `parent` chain (radius grows per level via RADIUS_BASE/RADIUS_STEP),
+// angle is inherited from the parent unless a sibling group shares that
+// parent, in which case the group spreads symmetrically around it. Root
+// satellites (no parent) spread around 270° (directly above the hub).
+const RADIUS_BASE = ORBIT_R; // depth-1 radius — unchanged from the original single-ring layout
+
+// Satellite circles render as a fixed 44px (`w-11 h-11`) HTML div — 22px
+// radius. HUB_R_SVG (52 units for a 96px/48px-radius hub circle) already
+// encodes this file's px→SVG-unit ratio (52/48 ≈ 1.083); apply the same
+// ratio here instead of guessing a separate constant for satellites.
+const SAT_R_SVG = (44 / 2) * (HUB_R_SVG / (96 / 2)); // ≈ 23.8
+
+// Extra clearance (SVG units) between two same-branch nodes' edges so the
+// dashed connector between them stays visible instead of the circles
+// touching or overlapping.
+const NODE_GAP_MARGIN = 16;
+
+// Minimum center-to-center distance between consecutive depths: both nodes'
+// real radii plus the gap margin above.
+const RADIUS_STEP = SAT_R_SVG * 2 + NODE_GAP_MARGIN; // ≈ 63.7
+
+function getSatelliteOffsets(satellites) {
+  if (satellites.length === 0) return [];
+
+  const byId = Object.fromEntries(satellites.map(s => [s.id, s]));
+
+  // Group by parent, treating an unresolvable parent id (typo, or a parent
+  // that isn't in this hub) as "no parent" so a bad config value degrades
+  // to a root slot instead of breaking the layout.
+  const childrenOf = {};
+  satellites.forEach(s => {
+    const key = (s.parent && byId[s.parent]) ? s.parent : '';
+    (childrenOf[key] = childrenOf[key] || []).push(s);
+  });
+
+  // count=2 uses a narrower arc than the original single-ring table (was 90°):
+  // at deeper radii a 90° fork pushes past the hub's canvas margin (verified
+  // against the leftmost hub, which has the least horizontal clearance).
+  const arcBySiblingCount = [0, 0, 60, 60, 120, 140];
+  const angleById = {};
+  const depthById = {};
+
+  function assignAngles(parentKey, baseAngle, depth) {
+    const group = childrenOf[parentKey] || [];
+    const arc = arcBySiblingCount[Math.min(group.length, arcBySiblingCount.length - 1)];
+    group.forEach((sat, i) => {
+      if (angleById[sat.id] != null) return; // already placed — guards against a parent cycle re-entering a group
+      const frac = group.length === 1 ? 0.5 : i / (group.length - 1);
+      angleById[sat.id] = group.length === 1 ? baseAngle : baseAngle - arc / 2 + frac * arc;
+      depthById[sat.id] = depth;
+      assignAngles(sat.id, angleById[sat.id], depth + 1); // recurse into this satellite's own children
+    });
+  }
+
+  assignAngles('', 270, 1);
+
+  // A parent cycle among non-root satellites (config typo) is never reached
+  // from the root walk above — place any leftovers as extra root slots
+  // instead of rendering at NaN.
+  satellites.forEach(sat => {
+    if (angleById[sat.id] == null) {
+      angleById[sat.id] = 270;
+      depthById[sat.id] = 1;
+    }
+  });
+
+  return satellites.map(sat => {
+    const rad = angleById[sat.id] * (Math.PI / 180);
+    const r   = RADIUS_BASE + RADIUS_STEP * (depthById[sat.id] - 1);
+    return { x: Math.cos(rad) * r, y: Math.sin(rad) * r };
   });
 }
+
+// --- Canvas sizing -----------------------------------------------------
+// CANVAS_H, HUB_Y and HUB_CX are derived from the actual satellite offsets
+// (computed above) rather than a guessed viewBox, so the deepest configured
+// chain across any hub — currently 4 levels, in the 'approve' hub — never
+// clips the outermost node's edge. If a hub's chain gets deeper still, these
+// recompute automatically from the same real offsets.
+const CANVAS_PADDING  = 20; // breathing room beyond the outermost node's edge
+const allSatOffsets   = workflowHubs.flatMap(hub => getSatelliteOffsets(hub.satellites));
+const maxUpOffset     = allSatOffsets.reduce((m, { y }) => Math.max(m, -y), 0);
+const maxSideOffset   = allSatOffsets.reduce((m, { x }) => Math.max(m, Math.abs(x)), 0);
+
+const HUB_Y      = Math.ceil(maxUpOffset + SAT_R_SVG + CANVAS_PADDING);
+const CANVAS_H   = HUB_Y + HUB_R_SVG + 70; // 70 ≈ label text + bottom breathing room (matches the original 320 − 200 − 52 = 68)
+const HUB_MARGIN_X = Math.ceil(maxSideOffset + SAT_R_SVG + CANVAS_PADDING);
+const HUB_CX = workflowHubs.map((_, i) =>
+  HUB_MARGIN_X + i * ((CANVAS_W - 2 * HUB_MARGIN_X) / Math.max(workflowHubs.length - 1, 1))
+);
 
 const VENDOR_SAT_COLORS = {
   ok:      { bg: '#E3F4EC', border: '#1E7A52', color: '#1E7A52' },
@@ -126,7 +205,7 @@ export default function HubSatelliteGraph({ preset, projectId }) {
           {/* Hub-to-satellite connector lines — each satellite links from its
               `parent` sibling (chain), or from the hub center if it has none. */}
           {workflowHubs.map((hub, i) => {
-            const offsets  = getSatelliteOffsets(hub.satellites.length);
+            const offsets  = getSatelliteOffsets(hub.satellites);
             const posById  = Object.fromEntries(hub.satellites.map((s, j) => [s.id, offsets[j]]));
             return hub.satellites.map((sat, j) => {
               const { x, y } = offsets[j];
@@ -190,7 +269,7 @@ export default function HubSatelliteGraph({ preset, projectId }) {
 
         {/* Satellite circles (HTML) */}
         {workflowHubs.map((hub, i) => {
-          const offsets = getSatelliteOffsets(hub.satellites.length);
+          const offsets = getSatelliteOffsets(hub.satellites);
           return hub.satellites.map((sat, j) => {
             const { x, y } = offsets[j];
             const satX = HUB_CX[i] + x;
