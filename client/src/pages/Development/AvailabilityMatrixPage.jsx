@@ -77,13 +77,15 @@ function EntityRow({ entity, dates, onToggle, onRemove, savingKeys }) {
         <div className="flex items-center gap-1 group">
           <span className="text-ink-800 flex-1 truncate">{entity.entity_name || entity.entity_ref}</span>
           <SourceBadge type={entity.source_type} />
-          <button
-            onClick={() => onRemove(entity)}
-            className="opacity-0 group-hover:opacity-100 transition-opacity text-ink-300 hover:text-red-600 shrink-0"
-            title="ลบออก"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
+          {onRemove && (
+            <button
+              onClick={() => onRemove(entity)}
+              className="opacity-0 group-hover:opacity-100 transition-opacity text-ink-300 hover:text-red-600 shrink-0"
+              title="ลบออก"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
       </td>
       {dates.map(date => {
@@ -142,86 +144,6 @@ function ModalFooter({ onClose, onConfirm, saving, disabled }) {
         {saving ? 'กำลังบันทึก…' : 'ยืนยัน'}
       </button>
     </div>
-  );
-}
-
-// ดึงจากรายชื่อกลางของโครงการ (project_participants) — กรอกรายชื่อครั้งเดียวใช้ทุก phase
-// เฉพาะคนที่เลือกจากข้อมูลหลัก (มี employee_code) เท่านั้นที่ติดตามวันว่างได้
-function AddParticipantModal({ projectId, existingRefs, onClose, onAdded }) {
-  const [candidates, setCandidates] = useState([]);
-  const [selected, setSelected] = useState(new Set());
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    api.get(`/training-projects/${projectId}/participants`)
-      .then(list => {
-        setCandidates(list.filter(p => p.employee_code && !existingRefs.has(p.employee_code)));
-        setLoading(false);
-      })
-      .catch(e => { toast.error(e.message); setLoading(false); });
-  }, []);  // eslint-disable-line react-hooks/exhaustive-deps
-
-  function toggle(code) {
-    setSelected(prev => {
-      const s = new Set(prev);
-      s.has(code) ? s.delete(code) : s.add(code);
-      return s;
-    });
-  }
-
-  async function confirm() {
-    if (!selected.size) { toast.error('กรุณาเลือกผู้เข้าอบรม'); return; }
-    setSaving(true);
-    try {
-      for (const code of selected) {
-        await api.post('/availability', { training_project_id: projectId, entity_type: 'participant', entity_ref: code, slot_date: todayStr(), status: 'available', note: null });
-      }
-      toast.success(`เพิ่มผู้เข้าอบรม ${selected.size} คนเข้าตาราง`);
-      onAdded(); onClose();
-    } catch (e) { toast.error(e.message); }
-    finally { setSaving(false); }
-  }
-
-  return (
-    <Modal title="เพิ่มผู้เข้าอบรมเข้าตารางวันว่าง" onClose={onClose}>
-      {loading ? <div className="flex justify-center py-8"><Loader2 className="w-5 h-5 animate-spin text-ink-400" /></div> : (
-        <div className="space-y-4">
-          {candidates.length === 0 ? (
-            <p className="text-sm text-ink-500">
-              รายชื่อกลางของโครงการถูกเพิ่มเข้าตารางครบแล้ว หรือยังไม่มีรายชื่อ —{' '}
-              <Link to={`/development/workflow/${projectId}/participants`} className="underline underline-offset-2 hover:text-ink-800">
-                จัดการรายชื่อผู้เข้าอบรม
-              </Link>
-            </p>
-          ) : (
-            <>
-              <div className="flex items-center justify-between text-xs text-ink-500">
-                <span>จากรายชื่อกลางของโครงการ</span>
-                <button
-                  type="button"
-                  onClick={() => setSelected(new Set(candidates.map(p => p.employee_code)))}
-                  className="underline underline-offset-2 hover:text-ink-800"
-                >
-                  เลือกทั้งหมด ({candidates.length})
-                </button>
-              </div>
-              <div className="max-h-56 overflow-y-auto rounded-lg border border-ink-100 divide-y divide-ink-50">
-                {candidates.map(p => (
-                  <label key={p.employee_code} className="flex items-center gap-3 px-3 py-2 text-sm hover:bg-ink-50 cursor-pointer">
-                    <input type="checkbox" checked={selected.has(p.employee_code)} onChange={() => toggle(p.employee_code)} />
-                    <span className="font-mono text-xs text-ink-400 w-16 shrink-0">{p.employee_code}</span>
-                    <span className="flex-1 truncate">{p.name}</span>
-                    <span className="text-xs text-ink-400 truncate max-w-[8rem]">{p.department || ''}</span>
-                  </label>
-                ))}
-              </div>
-            </>
-          )}
-          <ModalFooter onClose={onClose} onConfirm={confirm} saving={saving} disabled={!selected.size} />
-        </div>
-      )}
-    </Modal>
   );
 }
 
@@ -348,7 +270,7 @@ function StepIndicator({ step, onSelect }) {
 
 // ── Step 1 ────────────────────────────────────────────────────────────────────
 
-function ResourceCard({ title, items, onAdd, onRemove, badge }) {
+function ResourceCard({ title, items, onAdd, onRemove, badge, footer }) {
   return (
     <div className="rounded-xl border border-slate-200 overflow-hidden">
       <div className="px-4 py-3 text-sm font-semibold font-display border-b border-slate-200 flex items-center justify-between" style={{ background: '#F4F0EF', color: '#78716E' }}>
@@ -361,18 +283,23 @@ function ResourceCard({ title, items, onAdd, onRemove, badge }) {
           <div key={item.entity_ref} className="flex items-center gap-1 text-sm text-ink-800 group">
             <span className="flex-1 truncate">{item.entity_name || item.entity_ref}</span>
             {badge && badge(item)}
-            <button
-              onClick={() => onRemove(item)}
-              className="opacity-0 group-hover:opacity-100 transition-opacity text-ink-300 hover:text-red-600 shrink-0"
-              title="ลบออก"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
+            {onRemove && (
+              <button
+                onClick={() => onRemove(item)}
+                className="opacity-0 group-hover:opacity-100 transition-opacity text-ink-300 hover:text-red-600 shrink-0"
+                title="ลบออก"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
         ))}
-        <button onClick={onAdd} className="flex items-center gap-1 text-xs text-ink-500 hover:text-ink-800 transition-colors pt-2">
-          <Plus className="w-3 h-3" /> เพิ่ม
-        </button>
+        {onAdd && (
+          <button onClick={onAdd} className="flex items-center gap-1 text-xs text-ink-500 hover:text-ink-800 transition-colors pt-2">
+            <Plus className="w-3 h-3" /> เพิ่ม
+          </button>
+        )}
+        {footer}
       </div>
     </div>
   );
@@ -426,7 +353,19 @@ function Step1({ projectId, candidateDates, onAddDate, onRemoveDate, matrixData,
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <ResourceCard title="วิทยากร" items={matrixData.instructors} onAdd={() => onAddModal('instructor')} onRemove={onRemove} badge={e => <SourceBadge type={e.source_type} />} />
         <ResourceCard title="สถานที่" items={matrixData.venues} onAdd={() => onAddModal('venue')} onRemove={onRemove} badge={e => <SourceBadge type={e.source_type} />} />
-        <ResourceCard title="ผู้เข้าอบรม" items={matrixData.participants} onAdd={() => onAddModal('participant')} onRemove={onRemove} />
+        {/* ผู้เข้าอบรมมาจากรายชื่อกลางของโครงการอัตโนมัติ — แก้ที่หน้าเดียว ไม่ต้องเพิ่มซ้ำ */}
+        <ResourceCard
+          title="ผู้เข้าอบรม (จากรายชื่อกลาง)"
+          items={matrixData.participants}
+          footer={
+            <Link
+              to={`/development/workflow/${projectId}/participants`}
+              className="flex items-center gap-1 text-xs text-ink-500 hover:text-ink-800 underline underline-offset-2 pt-2"
+            >
+              จัดการรายชื่อที่หน้า "รายชื่อผู้เข้าอบรม"
+            </Link>
+          }
+        />
       </div>
 
       <div className="flex justify-end">
@@ -445,7 +384,7 @@ function Step1({ projectId, candidateDates, onAddDate, onRemoveDate, matrixData,
 
 // ── Step 2 ────────────────────────────────────────────────────────────────────
 
-function Step2({ candidateDates, matrixData, onToggle, onRemove, savingKeys, onAddModal, onPrev, onNext }) {
+function Step2({ projectId, candidateDates, matrixData, onToggle, onRemove, savingKeys, onAddModal, onPrev, onNext }) {
   const dates = candidateDates.map(cd => cd.date);
 
   return (
@@ -500,9 +439,20 @@ function Step2({ candidateDates, matrixData, onToggle, onRemove, savingKeys, onA
             {matrixData.venues.map(e => <EntityRow key={e.entity_ref} entity={e} dates={dates} onToggle={onToggle} onRemove={onRemove} savingKeys={savingKeys} />)}
             <AddRow label="+ เพิ่มสถานที่" colCount={dates.length} onClick={() => onAddModal('venue')} />
 
-            <SectionRow label="ผู้เข้าอบรม" colCount={dates.length} />
-            {matrixData.participants.map(e => <EntityRow key={e.entity_ref} entity={e} dates={dates} onToggle={onToggle} onRemove={onRemove} savingKeys={savingKeys} />)}
-            <AddRow label="+ เพิ่มผู้เข้าอบรม" colCount={dates.length} onClick={() => onAddModal('participant')} />
+            <SectionRow label="ผู้เข้าอบรม (จากรายชื่อกลางของโครงการ)" colCount={dates.length} />
+            {matrixData.participants.map(e => <EntityRow key={e.entity_ref} entity={e} dates={dates} onToggle={onToggle} savingKeys={savingKeys} />)}
+            <tr>
+              <td colSpan={dates.length + 1} className="border-b border-slate-200 px-3 py-1.5" style={{ background: '#FAF7F6' }}>
+                <Link
+                  to={`/development/workflow/${projectId}/participants`}
+                  className="text-xs text-ink-500 hover:text-ink-800 underline underline-offset-2 font-body"
+                >
+                  {matrixData.participants.length === 0
+                    ? 'ยังไม่มีรายชื่อผู้เข้าอบรม — เพิ่มที่หน้า "รายชื่อผู้เข้าอบรม" แล้วรายชื่อจะโผล่ที่นี่เอง'
+                    : 'เพิ่ม/ลบรายชื่อได้ที่หน้า "รายชื่อผู้เข้าอบรม"'}
+                </Link>
+              </td>
+            </tr>
           </tbody>
         </table>
       </div>
@@ -726,7 +676,6 @@ export default function AvailabilityMatrixPage() {
   }
 
   const existingRefs = {
-    participant: new Set(matrixData.participants.map(e => e.entity_ref)),
     instructor: new Set(matrixData.instructors.map(e => e.entity_ref)),
     venue: new Set(matrixData.venues.map(e => e.entity_ref)),
   };
@@ -775,6 +724,7 @@ export default function AvailabilityMatrixPage() {
           )}
           {step === 2 && (
             <Step2
+              projectId={projectId}
               candidateDates={candidateDates}
               matrixData={matrixData}
               onToggle={handleToggle}
@@ -798,9 +748,6 @@ export default function AvailabilityMatrixPage() {
         </>
       )}
 
-      {addModal === 'participant' && (
-        <AddParticipantModal projectId={Number(projectId)} existingRefs={existingRefs.participant} onClose={() => setAddModal(null)} onAdded={loadAll} />
-      )}
       {addModal === 'instructor' && (
         <AddInstructorModal projectId={Number(projectId)} existingRefs={existingRefs.instructor} onClose={() => setAddModal(null)} onAdded={loadAll} />
       )}

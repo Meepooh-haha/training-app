@@ -50,9 +50,28 @@ function loadHeaderPresets() {
   catch { return []; }
 }
 
-// สร้าง budget items ตั้งต้นจากงบ 5 หมวดในใบขอของโครงการ (เฉพาะหมวดที่กรอกไว้)
-function seedFromProject(project) {
+// สร้าง budget items ตั้งต้น: ถ้ามี Invoice ที่ยืนยันแล้ว ใช้ข้อมูลจริงจาก Invoice
+// (1 ใบ = 1 รายการ พร้อมเลขที่/ผู้ขาย/วันทำจ่าย) ไม่งั้นถอยไปใช้งบ 5 หมวดในใบขอ
+function seedFromProject(project, invoices) {
   if (!project) return EMPTY;
+  const base = {
+    ...EMPTY,
+    subject: `ขออนุมัติค่าใช้จ่ายโครงการฝึกอบรม "${project.name}"${project.req_no ? ` (${project.req_no})` : ''}`,
+  };
+  if (invoices?.length) {
+    return {
+      ...base,
+      budget_items: invoices.map((ex) => ({
+        ...EMPTY_ITEM,
+        item_name: ex.line_items?.[0]?.description || `ค่าใช้จ่ายตาม Invoice ${ex.invoice_number || ''}`.trim(),
+        details: (ex.line_items || []).slice(1).map((it) => it.description).filter(Boolean).join('\n'),
+        vendor_name: ex.vendor_name || '',
+        invoice_no: ex.invoice_number || '',
+        due_date: ex.due_date || '',
+        amount: ex.total_amount != null ? String(ex.total_amount) : '',
+      })),
+    };
+  }
   const BUDGETS = [
     ['budget_instructor', 'ค่าวิทยากร'],
     ['budget_venue', 'ค่าสถานที่'],
@@ -61,8 +80,7 @@ function seedFromProject(project) {
     ['budget_other', 'ค่าใช้จ่ายอื่น ๆ'],
   ];
   return {
-    ...EMPTY,
-    subject: `ขออนุมัติค่าใช้จ่ายโครงการฝึกอบรม "${project.name}"${project.req_no ? ` (${project.req_no})` : ''}`,
+    ...base,
     budget_items: BUDGETS
       .filter(([key]) => Number(project[key]) > 0)
       .map(([key, item_name]) => ({ ...EMPTY_ITEM, item_name, amount: String(project[key]) })),
@@ -71,8 +89,10 @@ function seedFromProject(project) {
 
 // `project` (optional): เมื่อออก Memo จากใต้โครงการอบรม — เรื่องและรายการงบ
 // prefill จากใบขอของโครงการ (แก้ไขต่อได้อิสระ)
-export default function MemoForm({ project }) {
-  const [form, setForm] = useState(() => seedFromProject(project));
+// `invoices` (optional): extraction_data ของ Invoice ที่ยืนยันแล้ว → ใช้แทนงบ 5 หมวด
+// `onExported` (optional): เรียกหลัง export สำเร็จ (เช่นให้ shell รีโหลดสถานะอนุมัติ)
+export default function MemoForm({ project, invoices, onExported }) {
+  const [form, setForm] = useState(() => seedFromProject(project, invoices));
   const [errors, setErrors] = useState({});
   const [exporting, setExporting] = useState(false);
   const [approvers, setApprovers] = useState(loadApprovers);
@@ -231,6 +251,20 @@ export default function MemoForm({ project }) {
       a.download = filename;
       a.click();
       URL.revokeObjectURL(url);
+
+      // ออก Memo ใต้โครงการที่ยังเป็นร่าง → ขยับสถานะเป็น "รออนุมัติ" ให้เอง
+      // (สี satellite ออก Memo ในกราฟอนุมานจาก approval_status)
+      if (project?.id && project.approval_status === 'draft') {
+        try {
+          await fetch(`/api/training-projects/${project.id}/approval`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ approval_status: 'pending' }),
+          });
+          toast.success('อัปเดตสถานะโครงการเป็น "รออนุมัติ (ส่ง Memo แล้ว)" ให้แล้ว');
+          onExported?.();
+        } catch { /* ไม่ให้พลาดเรื่องสถานะมาบังการ export ที่สำเร็จแล้ว */ }
+      }
     } catch (e) {
       console.error(e);
       toast.error(`เกิดข้อผิดพลาด: ${e.message}`);
@@ -265,6 +299,11 @@ export default function MemoForm({ project }) {
         <div>
           <h1 className="text-2xl font-bold text-slate-800">ออกใบ Memo</h1>
           <p className="text-sm text-slate-500">บันทึกข้อความขออนุมัติค่าใช้จ่ายการฝึกอบรม</p>
+          {invoices?.length > 0 && (
+            <p className="mt-1 text-xs text-emerald-700">
+              ✓ เติมรายการค่าใช้จ่ายจาก Invoice ที่ยืนยันแล้ว {invoices.length} ใบให้อัตโนมัติ — แก้ไขต่อได้อิสระ
+            </p>
+          )}
         </div>
         <Button variant="ghost" size="sm" onClick={() => { setForm(EMPTY); setErrors({}); }}>
           <RefreshCw size={14} /> ล้างฟอร์ม

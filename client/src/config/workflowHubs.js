@@ -8,11 +8,13 @@ export const workflowHubs = [
     id: 'approve',
     label: 'ขออนุมัติ',
     order: 1,
-    // Chain: availability -> vendor_check -> invoice_intake, which then forks
-    // into pr_issuance and memo_issuance. `parent` names the satellite (by id)
-    // this one branches from; omitted = branches from the hub itself.
+    // Chain: participants -> availability -> vendor_check -> invoice_intake,
+    // which then forks into pr_issuance and memo_issuance. `parent` names the
+    // satellite (by id) this one branches from; omitted = branches from the hub.
+    // participants มาก่อนเสมอ — ทุก phase อ่านรายชื่อกลางชุดนี้
     satellites: [
-      { id: 'availability',   label: 'ตารางวันว่าง', route: 'availability', publicHidden: true },
+      { id: 'participants',   label: 'รายชื่อผู้เข้าอบรม', route: 'participants' },
+      { id: 'availability',   label: 'ตารางวันว่าง', route: 'availability', parent: 'participants', publicHidden: true },
       { id: 'vendor_check',   label: 'ตรวจสอบ Vendor', route: 'vendor-check', dynamicStatus: true, parent: 'availability', publicHidden: true },
       { id: 'invoice_intake', label: 'รับ Invoice', route: 'invoice-intake', parent: 'vendor_check' },
       { id: 'pr_issuance',    label: 'ออก PR',       route: 'pr-issuance', parent: 'invoice_intake' },
@@ -23,9 +25,10 @@ export const workflowHubs = [
     id: 'execute',
     label: 'เตรียม-จัดอบรม',
     order: 2,
+    // ลำดับงานจริง: ทำกำหนดการ (ต้องมีวันอบรมจาก Phase 1) ก่อน แล้วค่อยพิมพ์ใบลงทะเบียน
     satellites: [
-      { id: 'registration', label: 'ลงทะเบียน', route: 'registration', publicHidden: true },
-      { id: 'schedule', label: 'กำหนดการ', route: 'schedule', parent: 'registration', publicHidden: true },
+      { id: 'schedule', label: 'กำหนดการ', route: 'schedule', publicHidden: true },
+      { id: 'registration', label: 'ลงทะเบียน', route: 'registration', parent: 'schedule', publicHidden: true },
     ],
   },
   {

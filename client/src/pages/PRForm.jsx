@@ -35,12 +35,30 @@ const EMPTY = {
 const money = (n) =>
   Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+// เติมตารางรายการจาก Invoice ที่ AI อ่าน/ผู้ใช้ยืนยันแล้ว (รวมทุกใบ, สูงสุด 10 แถวตามฟอร์ม)
+// และตั้งวันที่ต้องการสินค้า = วันทำจ่ายที่เร็วที่สุด
+function seedFromInvoices(invoices) {
+  if (!invoices?.length) return {};
+  const lines = invoices.flatMap((ex) => ex.line_items || []).slice(0, 10);
+  if (!lines.length) return {};
+  const items = Array.from({ length: 10 }, (_, i) => {
+    const l = lines[i];
+    return l
+      ? { ...EMPTY_ITEM, description: l.description || '', qty: l.quantity ?? '', unit: l.unit || '', unit_price: l.unit_price ?? '' }
+      : { ...EMPTY_ITEM };
+  });
+  const dueDates = invoices.map((ex) => ex.due_date).filter(Boolean).sort();
+  return { items, ...(dueDates[0] ? { required_date: dueDates[0] } : {}) };
+}
+
 // `project` (optional): เมื่อออก PR จากใต้โครงการอบรม — เลขที่ PR จะถูกผูกกับ
 // โครงการใน ledger และเหตุผลการขอถูก prefill จากชื่อโครงการ
-export default function PRForm({ project }) {
+// `invoices` (optional): extraction_data ของ Invoice ที่ยืนยันแล้ว → เติมตารางรายการให้
+export default function PRForm({ project, invoices }) {
   const [form, setForm] = useState(() => ({
     ...EMPTY,
     reason: project ? `ค่าใช้จ่ายโครงการฝึกอบรม "${project.name}" (${project.req_no || ''})`.trim() : EMPTY.reason,
+    ...seedFromInvoices(invoices),
   }));
   const [errors, setErrors] = useState({});
   const [exporting, setExporting] = useState(false);
@@ -128,6 +146,11 @@ export default function PRForm({ project }) {
         <div>
           <h1 className="text-2xl font-bold text-slate-800">ออกใบ PR</h1>
           <p className="text-sm text-slate-500">ใบขอซื้อ / Purchase Requisition</p>
+          {invoices?.length > 0 && (
+            <p className="mt-1 text-xs text-emerald-700">
+              ✓ เติมรายการจาก Invoice ที่ยืนยันแล้ว {invoices.length} ใบให้อัตโนมัติ — แก้ไขต่อได้อิสระ
+            </p>
+          )}
         </div>
         <Button variant="ghost" size="sm" onClick={() => { setForm({ ...EMPTY, department: form.department }); setErrors({}); }}>
           <RefreshCw size={14} /> ล้างฟอร์ม

@@ -191,6 +191,7 @@ router.delete('/training-projects/:id', h(async (req, res) => {
   await db.batch([
     'PRAGMA foreign_keys = ON',
     { sql: 'UPDATE purchase_requisitions SET project_id=NULL WHERE project_id=?', args: [Number(req.params.id)] },
+    { sql: 'UPDATE invoice_extractions SET project_id=NULL WHERE project_id=?', args: [Number(req.params.id)] },
     { sql: 'DELETE FROM training_projects WHERE id=?', args: [Number(req.params.id)] },
   ], 'write');
   res.json({ ok: true });
@@ -522,7 +523,7 @@ router.get('/training-projects/:id/summary', h(async (req, res) => {
 
 router.get('/training-projects/:id/status', h(async (req, res) => {
   const id = Number(req.params.id);
-  const [project, participants, candidates, slots, registration, checkedIn, evals, schedule, prs, records] = await Promise.all([
+  const [project, participants, candidates, slots, registration, checkedIn, evals, schedule, prs, records, invoices] = await Promise.all([
     q.get(
       `SELECT p.approval_status, p.approved_by, p.approved_at, p.training_date,
               p.objective, p.target_group, p.location, p.success_quantitative, p.success_qualitative,
@@ -541,6 +542,7 @@ router.get('/training-projects/:id/status', h(async (req, res) => {
     q.get('SELECT COUNT(*) AS c FROM project_schedule WHERE project_id=?', [id]),
     q.get("SELECT COUNT(*) AS c FROM purchase_requisitions WHERE project_id=? AND status='issued'", [id]),
     q.get('SELECT COUNT(*) AS c FROM training_records WHERE project_id=?', [id]),
+    q.get("SELECT COUNT(*) AS c, SUM(CASE WHEN status='confirmed' THEN 1 ELSE 0 END) AS confirmed FROM invoice_extractions WHERE project_id=?", [id]),
   ]);
   if (!project) return res.status(404).json({ error: 'not found' });
 
@@ -556,6 +558,7 @@ router.get('/training-projects/:id/status', h(async (req, res) => {
     evaluation:    { count: evals.c, avg_score: evals.avg ? Math.round(evals.avg * 100) / 100 : null },
     schedule:      { topics: schedule.c },
     pr:            { issued: prs.c },
+    invoice:       { count: invoices?.c || 0, confirmed: Number(invoices?.confirmed) || 0 },
     records:       { count: records.c },
     // ยื่น ยป. กรมพัฒนาฝีมือแรงงาน — เฉพาะหลักสูตร send_to_dsd; deadline = override หรือ training_date − 30 วัน
     dsd: {

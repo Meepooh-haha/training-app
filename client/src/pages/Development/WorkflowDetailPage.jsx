@@ -47,11 +47,18 @@ function StepNavigator({ project, status, onChanged }) {
   }
 
   const cs = project.current_step;
+  // ไม่มีคำเตือนของขั้นปัจจุบัน = งานหลักครบแล้ว → ชวนให้กดเลื่อนขั้น
+  const readyToAdvance = cs < 4 && status && !advanceWarning(cs, status, project);
 
   return (
     <div className="flex items-center justify-between">
       <span className="text-xs text-ink-400 font-body">
         ขั้นตอน {cs}/4 — {STEP_LABELS[cs - 1]}
+        {readyToAdvance && (
+          <span className="ml-2 font-semibold" style={{ color: '#1E7A52' }}>
+            ✓ งานหลักของขั้นนี้ครบแล้ว — กด "ถัดไป" ได้เลย
+          </span>
+        )}
       </span>
       <div className="flex gap-1">
         <button
@@ -628,6 +635,27 @@ export default function WorkflowDetailPage() {
             </button>
           </div>
         </div>
+
+        {/* ข้อมูลที่ Training Proposal ต้องใช้ยังไม่ครบ — ชี้ช่องที่ขาดให้ตรง ๆ
+            (แสดงทุกโครงการ ไม่เฉพาะ DSD จะได้ไม่ต้องไล่เดาใน mega-form) */}
+        {(() => {
+          const missing = [
+            [!String(project.objective || '').trim(), 'วัตถุประสงค์'],
+            [!String(project.target_group || '').trim(), 'กลุ่มเป้าหมาย'],
+            [!String(project.location || '').trim(), 'สถานที่'],
+            [!String(project.success_quantitative || '').trim() && !String(project.success_qualitative || '').trim(), 'การวัดผล (ปริมาณหรือคุณภาพ อย่างน้อย 1 ช่อง)'],
+          ].filter(([m]) => m).map(([, label]) => label);
+          if (!missing.length) return null;
+          return (
+            <div className="flex items-start gap-2 rounded-lg px-3 py-2 text-xs" style={{ background: '#FEF3C7', color: '#92400E' }}>
+              <CircleAlert className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+              <span>
+                ข้อมูลใบขอยังไม่ครบสำหรับเอกสาร Training Proposal — ขาด: <b>{missing.join(', ')}</b>{' '}
+                (กรอกได้ที่ปุ่ม "แก้ไขรายละเอียด")
+              </span>
+            </div>
+          );
+        })()}
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm border-t border-ink-100 pt-3">
           <div>

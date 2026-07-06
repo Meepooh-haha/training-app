@@ -213,6 +213,27 @@ router.get('/availability/:trainingProjectId', h(async (req, res) => {
     entities[key].slots[slot.slot_date] = { status: slot.status, note: slot.note };
   }
 
+  // รายชื่อกลางของโครงการโผล่ในตารางอัตโนมัติ (ไม่ต้องกดเพิ่มซ้ำรอบสอง) —
+  // เฉพาะคนที่เลือกจากข้อมูลหลัก (มี employee_code) เท่านั้นที่ติดตามวันว่างได้
+  const projParticipants = await q.all(
+    `SELECT employee_code, name FROM project_participants
+     WHERE project_id = ? AND employee_code IS NOT NULL
+     ORDER BY id`,
+    [pid],
+  );
+  for (const p of projParticipants) {
+    const key = `participant:${p.employee_code}`;
+    if (!entities[key]) {
+      entities[key] = {
+        entity_type: 'participant',
+        entity_ref:  p.employee_code,
+        entity_name: p.name,
+        source_type: null,
+        slots: {},
+      };
+    }
+  }
+
   const result = { participants: [], instructors: [], venues: [] };
   for (const entity of Object.values(entities)) {
     if (entity.entity_type === 'participant') result.participants.push(entity);

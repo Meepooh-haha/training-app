@@ -135,6 +135,12 @@ function satState(sat, status, vendorStatus) {
   }
   if (!status) return 'none';
   switch (sat.id) {
+    case 'participants':
+      return status.participants?.count > 0 ? 'done' : 'none';
+    case 'invoice_intake':
+      // มี invoice ยืนยันแล้ว = เขียว, อัปโหลด/สกัดแล้วแต่ยังไม่ยืนยัน = เหลือง
+      return status.invoice?.confirmed > 0 ? 'done'
+        : (status.invoice?.count > 0 ? 'warning' : 'none');
     case 'availability':
       return status.availability?.date_confirmed ? 'done'
         : (status.availability?.candidate_dates > 0 ? 'warning' : 'none');
@@ -157,7 +163,7 @@ function satState(sat, status, vendorStatus) {
       // หน้ารายงานอ่านอย่างเดียว — ถือว่าพร้อมเมื่อบันทึกประวัติแล้ว
       return status.records?.count > 0 ? 'done' : 'none';
     default:
-      return 'none'; // invoice_intake ฯลฯ — ยังไม่มีข้อมูลให้อนุมาน
+      return 'none';
   }
 }
 

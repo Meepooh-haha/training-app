@@ -219,11 +219,13 @@ export async function initDb() {
 
   try { await db.execute('ALTER TABLE employees ADD COLUMN position_id INTEGER REFERENCES positions(id)'); } catch {}
 
-  // Invoice extractions table (new module)
+  // Invoice extractions — ผล AI อ่านใบแจ้งหนี้ ผูกกับโครงการผ่าน project_id
+  // (nullable — ลบโครงการแล้วประวัติการสกัดยังอยู่)
   try {
     await db.execute(`
       CREATE TABLE invoice_extractions (
         id                TEXT PRIMARY KEY,
+        project_id        INTEGER,
         file_name         TEXT NOT NULL,
         file_mime_type    TEXT NOT NULL,
         file_size         INTEGER NOT NULL,
@@ -231,10 +233,14 @@ export async function initDb() {
         confidence_flag   INTEGER DEFAULT 0,
         uncertain_fields  TEXT DEFAULT '[]',
         created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at        TEXT,
         status            TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'confirmed', 'rejected'))
       )
     `);
   } catch {}
+  // DB เก่าที่สร้างตารางก่อนมีคอลัมน์เหล่านี้
+  try { await db.execute('ALTER TABLE invoice_extractions ADD COLUMN project_id INTEGER'); } catch {}
+  try { await db.execute('ALTER TABLE invoice_extractions ADD COLUMN updated_at TEXT'); } catch {}
   await db.execute(`
     UPDATE employees
     SET position_id = (
