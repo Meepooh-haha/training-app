@@ -8,6 +8,7 @@
     "start": "node index.js"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.110.0",
     "@libsql/client": "^0.17.4",
     "better-sqlite3": "^12.11.1",
     "cors": "^2.8.5",
@@ -16,6 +17,7 @@
     "dotenv": "^17.4.2",
     "exceljs": "^4.4.0",
     "express": "^4.21.1",
+    "multer": "^2.2.0",
     "phantomjs-prebuilt": "^2.1.16",
     "pizzip": "^3.2.0"
   },

@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { useSearchParams, Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Loader2, CheckCircle2, AlertCircle, Building2, ExternalLink } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Loader2, CheckCircle2, AlertCircle, Building2, ExternalLink } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { api } from '../../lib/api.js';
+import { useProject } from './ProjectShell.jsx';
 
 const STATUS_CFG = {
   ok:      { bg: '#E3F4EC', border: '#6EE7B7', icon: CheckCircle2, iconColor: '#1E7A52', label: 'ขึ้นทะเบียนครบแล้ว' },
@@ -33,21 +34,11 @@ function VendorBadge({ vendor }) {
 }
 
 export default function VendorCheckPage() {
-  const [searchParams] = useSearchParams();
-  const navigate = useNavigate();
-  const deepLinkId = searchParams.get('projectId');
-
-  const [projects, setProjects] = useState([]);
-  const [projectId, setProjectId] = useState(deepLinkId || '');
+  const { projectId } = useProject();
   const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    api.get('/training-projects').then(setProjects).catch(e => toast.error(e.message));
-  }, []);
-
-  useEffect(() => {
-    if (!projectId) { setData(null); return; }
     setLoading(true);
     api.get(`/training-projects/${projectId}/vendor-check`)
       .then(setData)
@@ -55,53 +46,21 @@ export default function VendorCheckPage() {
       .finally(() => setLoading(false));
   }, [projectId]);
 
-  const backProject = deepLinkId ? projects.find(p => String(p.id) === deepLinkId) : null;
   const cfg = data ? (STATUS_CFG[data.status] ?? STATUS_CFG.none) : null;
   const StatusIcon = cfg?.icon;
 
   return (
     <div className="space-y-5 font-body">
-      {backProject && (
-        <Link to={`/development/workflow/${deepLinkId}`} className="inline-flex items-center gap-1.5 text-sm text-ink-500 hover:text-ink-800 transition-colors">
-          <ArrowLeft className="w-4 h-4" /> กลับไปที่ Workflow: {backProject.name}
-        </Link>
-      )}
-
       <div>
-        <h1 className="text-2xl font-bold text-ink-900 font-display">ตรวจสอบ Vendor</h1>
+        <h2 className="text-xl font-bold text-ink-900 font-display">ตรวจสอบ Vendor</h2>
         <p className="text-sm text-ink-500 mt-0.5">สถานะการขึ้นทะเบียนของวิทยากรภายนอกในโครงการ</p>
       </div>
 
-      <div>
-        <span className="text-ink-700 font-medium text-sm block mb-1">โครงการฝึกอบรม</span>
-        {backProject ? (
-          <div className="rounded-lg border border-ink-200 px-3 py-2 text-sm w-72 font-semibold text-ink-900" style={{ background: '#FAF7F6' }}>
-            {backProject.name}
-            <span className="ml-1.5 text-xs font-normal text-ink-400">({backProject.quarter}/{backProject.year})</span>
-          </div>
-        ) : (
-          <select
-            className="rounded-lg border border-ink-200 px-3 py-2 text-sm w-72 focus:outline-none focus:ring-2 focus:ring-maroon-300"
-            value={projectId}
-            onChange={e => setProjectId(e.target.value)}
-          >
-            <option value="">— เลือกโครงการ —</option>
-            {projects.map(p => <option key={p.id} value={String(p.id)}>{p.name} ({p.quarter}/{p.year})</option>)}
-          </select>
-        )}
-      </div>
-
-      {!projectId && (
-        <div className="rounded-xl border border-slate-200 py-20 text-center text-sm text-ink-400" style={{ background: '#FAF7F6' }}>
-          เลือกโครงการฝึกอบรมเพื่อตรวจสอบ Vendor
-        </div>
-      )}
-
-      {projectId && loading && (
+      {loading && (
         <div className="flex justify-center py-16"><Loader2 className="w-6 h-6 animate-spin text-ink-400" /></div>
       )}
 
-      {projectId && !loading && data && (
+      {!loading && data && (
         <div className="space-y-4">
           {/* Summary banner */}
           <div
@@ -132,7 +91,7 @@ export default function VendorCheckPage() {
               ยังไม่มีวิทยากรภายนอกที่เพิ่มเข้ามาในโครงการนี้
               <div className="mt-2">
                 <Link
-                  to={`/development/availability?projectId=${projectId}`}
+                  to={`/development/workflow/${projectId}/availability`}
                   className="text-xs text-blue-600 hover:underline"
                 >
                   → ไปที่ตารางวันว่าง เพื่อเพิ่มวิทยากร
@@ -175,7 +134,7 @@ export default function VendorCheckPage() {
           )}
 
           <div className="flex gap-3 text-xs text-ink-500 pt-1">
-            <Link to={`/development/availability?projectId=${projectId}`} className="hover:text-ink-800 underline underline-offset-2">
+            <Link to={`/development/workflow/${projectId}/availability`} className="hover:text-ink-800 underline underline-offset-2">
               ← ตารางวันว่าง
             </Link>
             <Link to="/setup?tab=vendors" className="hover:text-ink-800 underline underline-offset-2">

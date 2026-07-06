@@ -94,6 +94,33 @@ export async function initDb() {
   const schema = readFileSync(join(__dirname, 'schema.sql'), 'utf-8');
   await db.executeMultiple(schema);
 
+  // One-time rebuild (2026-07): training_requests ยุบเข้า training_projects +
+  // รายชื่อผู้เข้าอบรมย้ายไป project_participants. ตรวจจาก shape เก่า
+  // (training_projects ยังมีคอลัมน์ request_id) แล้วทิ้งตาราง workflow ทั้งชุด —
+  // ข้อมูล workflow เดิมเป็นข้อมูลทดสอบ (master data ใน Setup ไม่ถูกแตะ)
+  const tpShape = await q.get(
+    "SELECT sql FROM sqlite_master WHERE type='table' AND name='training_projects'",
+  );
+  if (tpShape && String(tpShape.sql).includes('request_id')) {
+    await db.executeMultiple(`
+      PRAGMA foreign_keys = OFF;
+      DROP TABLE IF EXISTS training_projects;
+      DROP TABLE IF EXISTS training_requests;
+      DROP TABLE IF EXISTS request_attendees;
+      DROP TABLE IF EXISTS request_schedule;
+      DROP TABLE IF EXISTS training_registrations;
+      DROP TABLE IF EXISTS registration_attendees;
+      DROP TABLE IF EXISTS training_evaluations;
+      DROP TABLE IF EXISTS eval_responses;
+      DROP TABLE IF EXISTS eval_attachments;
+      DROP TABLE IF EXISTS availability_slots;
+      DROP TABLE IF EXISTS candidate_dates;
+      PRAGMA foreign_keys = ON;
+    `);
+    await db.executeMultiple(schema); // recreate ตาม shape ใหม่
+    console.log('[db] Rebuilt workflow tables (project = request merge).');
+  }
+
   // Vendor updated_at triggers — must be separate db.execute() calls because
   // BEGIN...END bodies contain semicolons that break executeMultiple's splitter
   await db.execute(`
@@ -121,7 +148,29 @@ export async function initDb() {
   } catch {}
   try { await db.execute('ALTER TABLE instructors ADD COLUMN notes TEXT'); } catch {}
   try { await db.execute('ALTER TABLE venues ADD COLUMN notes TEXT'); } catch {}
-  try { await db.execute("ALTER TABLE training_projects ADD COLUMN notes TEXT DEFAULT ''"); } catch {}
+  // Round 2 (2026-07): กำหนดการ Phase 2 + ผูก PR กับโครงการ
+  try { await db.execute("ALTER TABLE training_projects ADD COLUMN schedule_date_mode TEXT DEFAULT 'single'"); } catch {}
+  try { await db.execute("ALTER TABLE training_projects ADD COLUMN schedule_start_time TEXT DEFAULT '09:00'"); } catch {}
+  try { await db.execute('ALTER TABLE training_projects ADD COLUMN schedule_hours_per_day REAL DEFAULT 6'); } catch {}
+  try { await db.execute('ALTER TABLE purchase_requisitions ADD COLUMN project_id INTEGER REFERENCES training_projects(id)'); } catch {}
+  // การจัดประเภทโครงการ (competency + inhouse/public) — CHECK อยู่ใน schema.sql
+  // สำหรับ DB ใหม่; DB เดิม validate ที่ route แทน (SQLite ALTER ใส่ CHECK ไม่ได้)
+  try { await db.execute('ALTER TABLE training_projects ADD COLUMN competency_type TEXT'); } catch {}
+  try { await db.execute("ALTER TABLE training_projects ADD COLUMN delivery_type TEXT DEFAULT 'inhouse'"); } catch {}
+  // ฟอร์มยื่นกรมพัฒนาฝีมือแรงงาน (DSD)
+  try { await db.execute('ALTER TABLE employees ADD COLUMN national_id TEXT'); } catch {}
+  try { await db.execute('ALTER TABLE eval_items ADD COLUMN dsd_topic INTEGER'); } catch {}
+  // Round 3 (2026-07): หัวข้อย่อยในกำหนดการ + Training Proposal (การวัดผล) + พักเที่ยง
+  try { await db.execute("ALTER TABLE training_topics ADD COLUMN subtopics TEXT DEFAULT ''"); } catch {}
+  try { await db.execute("ALTER TABLE project_schedule ADD COLUMN subtopics TEXT DEFAULT ''"); } catch {}
+  try { await db.execute("ALTER TABLE training_projects ADD COLUMN success_quantitative TEXT DEFAULT ''"); } catch {}
+  try { await db.execute("ALTER TABLE training_projects ADD COLUMN success_qualitative TEXT DEFAULT ''"); } catch {}
+  try { await db.execute("ALTER TABLE training_projects ADD COLUMN schedule_lunch_start TEXT DEFAULT '12:00'"); } catch {}
+  try { await db.execute("ALTER TABLE training_projects ADD COLUMN schedule_lunch_end TEXT DEFAULT '13:00'"); } catch {}
+  // ติดตามยื่น ยป. กรมพัฒนาฝีมือแรงงาน
+  try { await db.execute('ALTER TABLE training_projects ADD COLUMN dsd_deadline TEXT'); } catch {}
+  try { await db.execute('ALTER TABLE training_projects ADD COLUMN dsd_submitted INTEGER DEFAULT 0'); } catch {}
+  try { await db.execute('ALTER TABLE training_projects ADD COLUMN dsd_approved INTEGER DEFAULT 0'); } catch {}
 
   const compRow = await q.get("SELECT sql FROM sqlite_master WHERE type='table' AND name='competencies'");
   if (compRow && !String(compRow.sql).includes("'leadership'")) {
@@ -169,6 +218,23 @@ export async function initDb() {
   );
 
   try { await db.execute('ALTER TABLE employees ADD COLUMN position_id INTEGER REFERENCES positions(id)'); } catch {}
+
+  // Invoice extractions table (new module)
+  try {
+    await db.execute(`
+      CREATE TABLE invoice_extractions (
+        id                TEXT PRIMARY KEY,
+        file_name         TEXT NOT NULL,
+        file_mime_type    TEXT NOT NULL,
+        file_size         INTEGER NOT NULL,
+        extraction_data   TEXT NOT NULL,
+        confidence_flag   INTEGER DEFAULT 0,
+        uncertain_fields  TEXT DEFAULT '[]',
+        created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+        status            TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'confirmed', 'rejected'))
+      )
+    `);
+  } catch {}
   await db.execute(`
     UPDATE employees
     SET position_id = (

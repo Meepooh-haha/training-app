@@ -1,16 +1,10 @@
 import { useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
-import { LayoutDashboard, Database, CalendarRange, FileText, FileOutput, Receipt, ClipboardList, ClipboardCheck, Menu, BarChart3, Route, UserCheck, GitBranch, CalendarCheck } from 'lucide-react';
+import { LayoutDashboard, Database, Menu, BarChart3, Route, UserCheck, GitBranch } from 'lucide-react';
 
 const NAV = [
   { to: '/', label: 'แดชบอร์ด', icon: LayoutDashboard, end: true },
   { to: '/setup', label: 'ข้อมูลหลัก', icon: Database },
-  { to: '/course-plan', label: 'กำหนดหลักสูตร', icon: CalendarRange },
-  { to: '/requests', label: 'ขออนุมัติอบรม', icon: FileText },
-  { to: '/pr-form', label: 'ออกใบ PR', icon: Receipt },
-  { to: '/memo-form', label: 'ออกใบ Memo', icon: FileOutput },
-  { to: '/registration', label: 'ลงทะเบียน', icon: ClipboardList },
-  { to: '/evaluation', label: 'ประเมินผล', icon: ClipboardCheck },
   { type: 'section', label: 'พัฒนาบุคลากร' },
   { to: '/development/competency-scores', label: 'ประเมินสมรรถนะ', icon: UserCheck },
   { to: '/development/gap-analysis', label: 'Gap Analysis', icon: BarChart3 },

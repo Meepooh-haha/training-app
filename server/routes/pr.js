@@ -1,23 +1,15 @@
 import { Router } from 'express';
-import { execFile } from 'child_process';
-import { readFileSync, writeFileSync, unlinkSync, rmSync } from 'fs';
-import { join, basename, dirname } from 'path';
-import { tmpdir } from 'os';
-import { promisify } from 'util';
 import { fillPrTemplate } from '../lib/renderXlsx.js';
 import db, { q } from '../db/db.js';
 
-const execFileAsync = promisify(execFile);
 const router = Router();
-
-const SOFFICE = 'C:\\Program Files\\LibreOffice\\program\\soffice.exe';
 
 // Issues the next PR number for a department+type inside a single write
 // transaction (SELECT MAX(seq) + INSERT is atomic under libSQL 'write' mode,
 // same pattern as nextReqNo() in requests.js) so concurrent exports can never
 // collide. The insert itself IS the audit row — pr_no is never handed out
 // without a corresponding ledger entry.
-async function issuePrNumber(department, prType, requester) {
+async function issuePrNumber(department, prType, requester, projectId) {
   const dept = String(department || '').trim();
   if (!dept) throw Object.assign(new Error('department is required to issue a PR number'), { status: 400 });
   const type = Number(prType);
@@ -35,8 +27,8 @@ async function issuePrNumber(department, prType, requester) {
     const pr_no = `${dept}${type}${String(seq).padStart(3, '0')}`;
 
     await tx.execute({
-      sql: 'INSERT INTO purchase_requisitions (pr_no, department, pr_type, seq, requester) VALUES (?,?,?,?,?)',
-      args: [pr_no, dept, type, seq, requester || ''],
+      sql: 'INSERT INTO purchase_requisitions (pr_no, department, pr_type, seq, requester, project_id) VALUES (?,?,?,?,?,?)',
+      args: [pr_no, dept, type, seq, requester || '', projectId ? Number(projectId) : null],
     });
     await tx.commit();
     return pr_no;
@@ -58,7 +50,7 @@ router.post('/pr/export-xlsx', async (req, res, next) => {
     // pr_no is always server-assigned — any client-supplied value is ignored
     // so a typo or a bad AI-filled request can never collide with or skip
     // the locked sequence.
-    const pr_no = await issuePrNumber(req.body.department, req.body.pr_type, req.body.requester);
+    const pr_no = await issuePrNumber(req.body.department, req.body.pr_type, req.body.requester, req.body.project_id);
     const department = await resolveDepartmentName(req.body.department);
     const buf = await fillPrTemplate({ ...req.body, pr_no, department });
     res.setHeader(
@@ -70,42 +62,6 @@ router.post('/pr/export-xlsx', async (req, res, next) => {
     res.send(buf);
   } catch (err) {
     next(err);
-  }
-});
-
-router.post('/pr/export-pdf', async (req, res, next) => {
-  const tmpDir = tmpdir();
-  const tmpXlsx = join(tmpDir, `pr_${Date.now()}.xlsx`);
-  const tmpPdf = join(dirname(tmpXlsx), basename(tmpXlsx, '.xlsx') + '.pdf');
-  const profileId = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
-  const profileDirPath = join('C:\\tmp', `soffice_${profileId}`);
-  const profileDirUrl = `file:///C:/tmp/soffice_${profileId}`;
-
-  try {
-    const pr_no = await issuePrNumber(req.body.department, req.body.pr_type, req.body.requester);
-    const department = await resolveDepartmentName(req.body.department);
-    const buf = await fillPrTemplate({ ...req.body, pr_no, department });
-    writeFileSync(tmpXlsx, buf);
-
-    await execFileAsync(SOFFICE, [
-      '--headless',
-      '--convert-to', 'pdf',
-      '--outdir', tmpDir,
-      `-env:UserInstallation=${profileDirUrl}`,
-      tmpXlsx,
-    ], { timeout: 15000 });
-
-    const pdf = readFileSync(tmpPdf);
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('X-Pr-No', pr_no);
-    res.setHeader('Content-Disposition', `attachment; filename="${pr_no}.pdf"`);
-    res.send(pdf);
-  } catch (err) {
-    next(err);
-  } finally {
-    try { unlinkSync(tmpXlsx); } catch {}
-    try { unlinkSync(tmpPdf); } catch {}
-    try { rmSync(profileDirPath, { recursive: true, force: true }); } catch {}
   }
 });
 

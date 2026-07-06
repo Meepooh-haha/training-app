@@ -1,15 +1,17 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
   RadialBarChart, RadialBar, PolarAngleAxis,
 } from 'recharts';
-import { CalendarDays, Wallet, Star, FileText } from 'lucide-react';
+import { CalendarDays, Wallet, Star, FileText, Landmark } from 'lucide-react';
 import { api } from '../lib/api.js';
 import { Card, Badge, STATUS_META } from '../components/ui.jsx';
 
 const MONTHS = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
 
 export default function Dashboard() {
+  const navigate = useNavigate();
   const [stats, setStats] = useState(null);
 
   useEffect(() => {
@@ -27,6 +29,30 @@ export default function Dashboard() {
         <h1 className="text-2xl font-bold text-slate-800">แดชบอร์ด</h1>
         <p className="text-sm text-slate-500">ภาพรวมการฝึกอบรมประจำปี {stats.year + 543}</p>
       </div>
+
+      {/* เตือนยื่น ยป. กรมพัฒนาฝีมือแรงงาน — โครงการ กพร. ที่ใกล้/เลยกำหนดยื่นแล้วยังไม่ยื่น */}
+      {(stats.dsdAlerts || []).length > 0 && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 space-y-2">
+          <div className="flex items-center gap-2 text-sm font-semibold text-amber-800">
+            <Landmark size={16} /> ต้องยื่น ยป. กรมพัฒนาฝีมือแรงงาน ({stats.dsdAlerts.length} โครงการ)
+          </div>
+          <ul className="space-y-1">
+            {stats.dsdAlerts.map((a) => (
+              <li
+                key={a.id}
+                onClick={() => navigate(`/development/workflow/${a.id}`)}
+                className="flex flex-wrap items-center gap-x-2 text-sm cursor-pointer hover:underline underline-offset-2"
+              >
+                <span className={`font-semibold ${a.days_left < 0 ? 'text-red-700' : 'text-amber-800'}`}>
+                  {a.days_left < 0 ? `เลยกำหนดมา ${-a.days_left} วัน` : `เหลือ ${a.days_left} วัน`}
+                </span>
+                <span className="text-slate-700">— {a.req_no} {a.name}</span>
+                <span className="text-xs text-slate-500">(กำหนดยื่น {a.deadline} · อบรม {a.training_date})</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* KPI cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -81,17 +107,17 @@ export default function Dashboard() {
         </ResponsiveContainer>
       </Card>
 
-      {/* Recent requests */}
+      {/* Recent projects */}
       <Card className="overflow-hidden">
         <div className="border-b border-slate-200 p-4">
-          <h2 className="font-semibold text-slate-800">คำขออบรมล่าสุด</h2>
+          <h2 className="font-semibold text-slate-800">โครงการอบรมล่าสุด</h2>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-left text-slate-500">
               <tr>
                 <th className="px-4 py-2.5 font-medium">เลขที่</th>
-                <th className="px-4 py-2.5 font-medium">หลักสูตร</th>
+                <th className="px-4 py-2.5 font-medium">โครงการ</th>
                 <th className="px-4 py-2.5 font-medium">วันที่อบรม</th>
                 <th className="px-4 py-2.5 font-medium">สถานะ</th>
               </tr>
@@ -103,10 +129,14 @@ export default function Dashboard() {
                 </tr>
               )}
               {stats.recent.map((r) => (
-                <tr key={r.id} className="hover:bg-slate-50">
+                <tr
+                  key={r.id}
+                  className="hover:bg-slate-50 cursor-pointer"
+                  onClick={() => navigate(`/development/workflow/${r.id}`)}
+                >
                   <td className="px-4 py-2.5 font-medium">{r.req_no}</td>
-                  <td className="px-4 py-2.5">{r.course_name_th || '-'}</td>
-                  <td className="px-4 py-2.5">{r.training_date}</td>
+                  <td className="px-4 py-2.5">{r.name || r.course_name_th || '-'}</td>
+                  <td className="px-4 py-2.5">{r.training_date || '-'}</td>
                   <td className="px-4 py-2.5">
                     <Badge color={STATUS_META[r.status]?.color}>{STATUS_META[r.status]?.label}</Badge>
                   </td>

@@ -9,7 +9,6 @@ import coursesRoutes from './routes/courses.js';
 import evalItemsRoutes from './routes/evalItems.js';
 import evalFormsRoutes from './routes/evalForms.js';
 import planRoutes from './routes/plans.js';
-import requestsRoutes from './routes/requests.js';
 import registrationsRoutes from './routes/registrations.js';
 import dashboardRoutes from './routes/dashboard.js';
 import evaluationRoutes from './routes/evaluation.js';
@@ -23,6 +22,10 @@ import prRoutes from './routes/pr.js';
 import trainingProjectsRoutes from './routes/training-projects.js';
 import availabilityRoutes from './routes/availability.js';
 import vendorsRoutes from './routes/vendors.js';
+import registrationExportRoutes from './routes/registration.js';
+import projectDocsRoutes from './routes/projectDocs.js';
+import invoicesRoutes from './routes/invoices.js';
+import dsdRoutes from './routes/dsd.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -36,7 +39,6 @@ app.use('/api', coursesRoutes);
 app.use('/api', evalItemsRoutes);
 app.use('/api', evalFormsRoutes);
 app.use('/api', planRoutes);
-app.use('/api', requestsRoutes);
 app.use('/api', registrationsRoutes);
 app.use('/api', dashboardRoutes);
 app.use('/api', evaluationRoutes);
@@ -50,6 +52,10 @@ app.use('/api', prRoutes);
 app.use('/api', trainingProjectsRoutes);
 app.use('/api', availabilityRoutes);
 app.use('/api', vendorsRoutes);
+app.use('/api', registrationExportRoutes);
+app.use('/api', projectDocsRoutes);
+app.use('/api', dsdRoutes);
+app.use('/api/invoices', invoicesRoutes);
 
 const clientDist = join(__dirname, '../client/dist');
 const indexHtml = join(clientDist, 'index.html');

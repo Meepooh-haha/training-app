@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { api } from '../../lib/api.js';
+import { COMPETENCY_TYPES, DELIVERY_TYPES, CompetencyBadge, DeliveryBadge } from '../../config/projectTypes.jsx';
 
 // ── Status helpers ────────────────────────────────────────────────────────────
 const QUARTER_ORDER = { Q1: 0, Q2: 1, Q3: 2, Q4: 3 };
@@ -109,10 +110,39 @@ function buildLayout(projects) {
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
+// ตัวกรองรายการโครงการ (แสดงเป็นชิปเหนือเส้นทาง)
+function FilterChips({ label, options, value, onChange }) {
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 font-body">
+      <span className="text-xs text-ink-400 mr-0.5">{label}</span>
+      <button
+        onClick={() => onChange('')}
+        className="text-xs font-medium px-2.5 py-1 rounded-full transition-colors"
+        style={value === '' ? { background: '#231F20', color: '#fff' } : { background: '#F1ECEA', color: '#78716E' }}
+      >
+        ทั้งหมด
+      </button>
+      {Object.entries(options).map(([key, cfg]) => (
+        <button
+          key={key}
+          onClick={() => onChange(value === key ? '' : key)}
+          className="text-xs font-medium px-2.5 py-1 rounded-full transition-colors"
+          style={value === key ? { background: cfg.color, color: '#fff' } : { background: cfg.bg, color: cfg.color }}
+          title={cfg.desc}
+        >
+          {cfg.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export default function RoadmapTrail() {
   const navigate  = useNavigate();
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [compFilter, setCompFilter] = useState('');
+  const [deliveryFilter, setDeliveryFilter] = useState('');
 
   useEffect(() => {
     setLoading(true);
@@ -139,13 +169,17 @@ export default function RoadmapTrail() {
     );
   }
 
-  const completedCount = projects.filter(p => getStatus(p.current_step) === 'completed').length;
-  const inProgressCount = projects.filter(p => getStatus(p.current_step) === 'in_progress').length;
-  const totalCount = projects.length;
-  const progressPct = Math.round((completedCount / totalCount) * 100);
+  const filtered = projects.filter(p =>
+    (!compFilter || p.competency_type === compFilter) &&
+    (!deliveryFilter || (p.delivery_type || 'inhouse') === deliveryFilter));
+
+  const completedCount = filtered.filter(p => getStatus(p.current_step) === 'completed').length;
+  const inProgressCount = filtered.filter(p => getStatus(p.current_step) === 'in_progress').length;
+  const totalCount = filtered.length;
+  const progressPct = totalCount ? Math.round((completedCount / totalCount) * 100) : 0;
   const xp = completedCount * 100 + inProgressCount * 40;
 
-  const { positioned, containerH, trailPoints, trailPointsDone } = buildLayout(projects);
+  const { positioned, containerH, trailPoints, trailPointsDone } = buildLayout(filtered);
 
   return (
     <div
@@ -168,12 +202,24 @@ export default function RoadmapTrail() {
       </div>
 
       {/* Progress bar */}
-      <div className="h-2 rounded-full bg-ink-100 overflow-hidden mb-7">
+      <div className="h-2 rounded-full bg-ink-100 overflow-hidden mb-4">
         <div
           className="h-full rounded-full transition-all duration-700"
           style={{ width: `${progressPct}%`, background: 'linear-gradient(135deg,#C71620 0%,#710F16 60%,#4A0A0E 100%)' }}
         />
       </div>
+
+      {/* Filters */}
+      <div className="flex flex-col gap-1.5 mb-6">
+        <FilterChips label="Competency:" options={COMPETENCY_TYPES} value={compFilter} onChange={setCompFilter} />
+        <FilterChips label="รูปแบบ:" options={DELIVERY_TYPES} value={deliveryFilter} onChange={setDeliveryFilter} />
+      </div>
+
+      {filtered.length === 0 && (
+        <div className="py-10 text-center text-sm text-ink-400 font-body">
+          ไม่มีโครงการที่ตรงตัวกรอง
+        </div>
+      )}
 
       {/* Trail + cards */}
       <div className="relative w-full" style={{ height: containerH }}>
@@ -288,10 +334,14 @@ export default function RoadmapTrail() {
                     {p.description}
                   </div>
                 )}
-                <div className="text-[11px] text-ink-400 font-body">
-                  {isPlanned
-                    ? `เป้าหมาย ${p.participant_count} คน`
-                    : `${p.participant_count} คนเข้าอบรม`}
+                <div className="flex flex-wrap items-center gap-1.5 font-body">
+                  <span className="text-[11px] text-ink-400">
+                    {isPlanned
+                      ? `เป้าหมาย ${p.participant_count} คน`
+                      : `${p.participant_count} คนเข้าอบรม`}
+                  </span>
+                  <DeliveryBadge type={p.delivery_type} className="!text-[10px] !px-1.5" />
+                  <CompetencyBadge type={p.competency_type} className="!text-[10px] !px-1.5" />
                 </div>
               </div>
             </button>

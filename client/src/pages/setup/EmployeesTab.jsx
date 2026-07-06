@@ -9,7 +9,19 @@ import { Field, Input, Select } from '../../components/ui.jsx';
 const EMPTY = {
   sequence: '', code: '', full_name: '', nickname: '',
   email: '', position_th: '', position_en: '', department: '', department_id: '', position_id: '',
+  national_id: '',
 };
+
+// ตรวจเลขบัตร ปชช. 13 หลัก (checksum เดียวกับฟอร์มกรมพัฒนาฝีมือแรงงาน)
+function thaiIdError(id) {
+  const s = String(id || '').replace(/[^0-9]/g, '');
+  if (!s) return null; // ไม่กรอกได้ — จำเป็นเฉพาะตอนยื่นกรม
+  if (s.length !== 13) return 'ไม่ครบ 13 หลัก';
+  let sum = 0;
+  for (let i = 0; i < 12; i++) sum += Number(s[i]) * (13 - i);
+  if ((11 - (sum % 11)) % 10 !== Number(s[12])) return 'เลขไม่ถูกต้อง (checksum)';
+  return null;
+}
 
 // Maps trimmed header cell values → internal field names.
 // Covers both our own export format and the Manpower HR file format.
@@ -73,7 +85,9 @@ export default function EmployeesTab() {
     const errs = {};
     if (!String(form.code).trim()) errs.code = true;
     if (!form.full_name.trim()) errs.full_name = true;
+    if (thaiIdError(form.national_id)) errs.national_id = true;
     setErrors(errs);
+    if (errs.national_id) return toast.error(`เลขบัตรประชาชน: ${thaiIdError(form.national_id)}`);
     if (Object.keys(errs).length) return toast.error('กรุณากรอกข้อมูลที่จำเป็น');
     setSaving(true);
     try {
@@ -281,6 +295,18 @@ export default function EmployeesTab() {
           </Field>
           <Field label="Email">
             <Input type="email" value={form.email} onChange={(e) => set('email', e.target.value)} />
+          </Field>
+          <Field label="เลขบัตรประชาชน (สำหรับยื่นกรมพัฒนาฝีมือแรงงาน)">
+            <Input
+              value={form.national_id || ''}
+              invalid={errors.national_id}
+              maxLength={13}
+              onChange={(e) => set('national_id', e.target.value.replace(/[^0-9]/g, ''))}
+              placeholder="13 หลัก"
+            />
+            {thaiIdError(form.national_id) && (
+              <span className="mt-1 block text-xs text-red-500">{thaiIdError(form.national_id)}</span>
+            )}
           </Field>
           <Field label="ฝ่าย">
             <Select

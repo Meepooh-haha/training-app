@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import { Plus, Trash2, FileDown, RefreshCw, ChevronDown, ChevronUp, UserPlus, X, BookmarkPlus } from 'lucide-react';
 import { bahtText, thaiDate } from '../lib/thai-utils.js';
@@ -6,8 +6,21 @@ import { Field, Input, Textarea, Button, Card } from '../components/ui.jsx';
 
 const TODAY = new Date().toISOString().slice(0, 10);
 
-const INTRO_DEFAULT =
-  'ตามที่ฝ่ายทรัพยากรบุคคล ได้รับอนุมัติให้ส่งบุคลากรเข้าร่วมการฝึกอบรมภายนอก ทางฝ่ายจึงขออนุมัติค่าฝึกอบรมภายนอก ตามรายละเอียดดังนี้';
+const INTRO_DEFAULT_LINES = [
+  'ตามที่ฝ่ายทรัพยากรบุคคล ได้รับอนุมัติให้ส่งบุคลากรเข้าร่วมการฝึกอบรมภายนอก',
+  'ทางฝ่ายจึงขออนุมัติค่าฝึกอบรมภายนอก ตามรายละเอียดดังนี้',
+];
+
+// The memo template renders this text at ~10pt in a ~6.5in-wide column (server/templates/memo_template.docx),
+// which fits roughly 100 Thai characters per line — capping input here keeps what the user types
+// from silently overflowing into a second, unplanned line in the exported document.
+const INTRO_LINE_MAX = 100;
+
+// Each entry is one literal line in the exported document — writing line-by-line
+// (instead of one wrapping textarea) lets the user see and control exactly where
+// lines break, since the browser's soft-wrap width has nothing to do with the
+// document's actual page width.
+const makeLine = (text = '') => ({ id: `line-${Date.now()}-${Math.random().toString(36).slice(2)}`, text });
 
 const EMPTY = {
   from_dept: '',
@@ -15,7 +28,7 @@ const EMPTY = {
   cc_dept: '',
   subject: '',
   doc_date: TODAY,
-  intro_text: INTRO_DEFAULT,
+  intro_lines: INTRO_DEFAULT_LINES.map((text, i) => ({ id: `line-intro-default-${i}`, text })),
   budget_items: [],
   sig1_name: '', sig1_title: '',
   sig2_name: '', sig2_title: '',
@@ -37,8 +50,29 @@ function loadHeaderPresets() {
   catch { return []; }
 }
 
-export default function MemoForm() {
-  const [form, setForm] = useState(EMPTY);
+// สร้าง budget items ตั้งต้นจากงบ 5 หมวดในใบขอของโครงการ (เฉพาะหมวดที่กรอกไว้)
+function seedFromProject(project) {
+  if (!project) return EMPTY;
+  const BUDGETS = [
+    ['budget_instructor', 'ค่าวิทยากร'],
+    ['budget_venue', 'ค่าสถานที่'],
+    ['budget_food', 'ค่าอาหารและเครื่องดื่ม'],
+    ['budget_material', 'ค่าเอกสารและอุปกรณ์'],
+    ['budget_other', 'ค่าใช้จ่ายอื่น ๆ'],
+  ];
+  return {
+    ...EMPTY,
+    subject: `ขออนุมัติค่าใช้จ่ายโครงการฝึกอบรม "${project.name}"${project.req_no ? ` (${project.req_no})` : ''}`,
+    budget_items: BUDGETS
+      .filter(([key]) => Number(project[key]) > 0)
+      .map(([key, item_name]) => ({ ...EMPTY_ITEM, item_name, amount: String(project[key]) })),
+  };
+}
+
+// `project` (optional): เมื่อออก Memo จากใต้โครงการอบรม — เรื่องและรายการงบ
+// prefill จากใบขอของโครงการ (แก้ไขต่อได้อิสระ)
+export default function MemoForm({ project }) {
+  const [form, setForm] = useState(() => seedFromProject(project));
   const [errors, setErrors] = useState({});
   const [exporting, setExporting] = useState(false);
   const [approvers, setApprovers] = useState(loadApprovers);
@@ -52,6 +86,30 @@ export default function MemoForm() {
     setForm((f) => ({ ...f, [k]: v }));
     setErrors((e) => ({ ...e, [k]: false }));
   };
+
+  // ── Intro line management (one field per document line) ────────────────
+  const introLineRefs = useRef({});
+  const pendingFocusId = useRef(null);
+  useEffect(() => {
+    if (pendingFocusId.current && introLineRefs.current[pendingFocusId.current]) {
+      introLineRefs.current[pendingFocusId.current].focus();
+      pendingFocusId.current = null;
+    }
+  }, [form.intro_lines]);
+  const setIntroLine = (id, text) =>
+    setForm((f) => ({ ...f, intro_lines: f.intro_lines.map((l) => (l.id === id ? { ...l, text } : l)) }));
+  const addIntroLine = (afterId) =>
+    setForm((f) => {
+      const idx = afterId ? f.intro_lines.findIndex((l) => l.id === afterId) : f.intro_lines.length - 1;
+      const newLine = makeLine('');
+      pendingFocusId.current = newLine.id;
+      return { ...f, intro_lines: [...f.intro_lines.slice(0, idx + 1), newLine, ...f.intro_lines.slice(idx + 1)] };
+    });
+  const removeIntroLine = (id) =>
+    setForm((f) => ({
+      ...f,
+      intro_lines: f.intro_lines.length > 1 ? f.intro_lines.filter((l) => l.id !== id) : f.intro_lines,
+    }));
 
   const addItem = () =>
     setForm((f) => ({ ...f, budget_items: [...f.budget_items, { ...EMPTY_ITEM }] }));
@@ -80,7 +138,7 @@ export default function MemoForm() {
       to_dept: form.to_dept,
       cc_dept: form.cc_dept,
       subject: form.subject,
-      intro_text: form.intro_text,
+      intro_lines: form.intro_lines.map((l) => l.text),
     }]);
     setNewPresetLabel('');
     toast.success(`บันทึกแม่แบบ "${label}" แล้ว`);
@@ -89,7 +147,10 @@ export default function MemoForm() {
   const applyHeaderPreset = (idx) => {
     const p = headerPresets[idx];
     if (!p) return;
-    ['from_dept', 'to_dept', 'cc_dept', 'subject', 'intro_text'].forEach((k) => set(k, p[k] ?? ''));
+    ['from_dept', 'to_dept', 'cc_dept', 'subject'].forEach((k) => set(k, p[k] ?? ''));
+    // older saved presets stored a single intro_text string instead of intro_lines
+    const lines = p.intro_lines ?? (p.intro_text ? p.intro_text.split('\n') : ['']);
+    set('intro_lines', lines.map(makeLine));
   };
 
   // ── Approver preset management ──────────────────────────────────────────
@@ -131,8 +192,10 @@ export default function MemoForm() {
         to_dept: form.to_dept,
         cc_dept: form.cc_dept,
         subject: form.subject,
-        // Bug 1: user's editable intro text replaces hardcoded body paragraph
-        intro_text: form.intro_text,
+        // Bug 1: user's editable intro text replaces hardcoded body paragraph.
+        // Lines are entered one field at a time in the UI, so \n here is exactly
+        // where the user chose to break — no relying on the docx to re-wrap it.
+        intro_text: form.intro_lines.map((l) => l.text).join('\n'),
         // Multi-item loop for expense table
         budget_items: form.budget_items.map((it) => ({
           // C2: bold toggle — two fields, one always empty
@@ -313,13 +376,52 @@ export default function MemoForm() {
 
       {/* ── Intro text ── */}
       <Card className="p-5">
-        <h2 className="mb-3 font-semibold text-slate-800">ข้อความนำ (เหนือตาราง)</h2>
-        <Textarea
-          rows={3}
-          value={form.intro_text}
-          onChange={(e) => set('intro_text', e.target.value)}
-        />
-        <p className="mt-1 text-xs text-slate-400">แก้ไขข้อความได้ตามต้องการ</p>
+        <h2 className="font-semibold text-slate-800">ข้อความนำ (เหนือตาราง)</h2>
+        <p className="mb-3 mt-1 text-xs text-slate-400">
+          พิมพ์ทีละบรรทัด แต่ละช่องคือ 1 บรรทัดจริงในเอกสาร กด Enter เพื่อขึ้นบรรทัดใหม่
+        </p>
+        <div className="space-y-2">
+          {form.intro_lines.map((line, i) => (
+            <div key={line.id} className="flex items-center gap-2">
+              <span className="w-5 shrink-0 text-right text-xs text-slate-400">{i + 1}</span>
+              <input
+                ref={(el) => {
+                  if (el) introLineRefs.current[line.id] = el;
+                  else delete introLineRefs.current[line.id];
+                }}
+                value={line.text}
+                onChange={(e) => setIntroLine(line.id, e.target.value.slice(0, INTRO_LINE_MAX))}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    addIntroLine(line.id);
+                  }
+                }}
+                maxLength={INTRO_LINE_MAX}
+                placeholder="พิมพ์ข้อความบรรทัดนี้..."
+                className="h-9 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500"
+              />
+              <span
+                className={`w-14 shrink-0 text-right text-xs tabular-nums ${
+                  line.text.length >= INTRO_LINE_MAX ? 'text-red-500' : 'text-slate-400'
+                }`}
+              >
+                {line.text.length}/{INTRO_LINE_MAX}
+              </span>
+              <button
+                type="button"
+                onClick={() => removeIntroLine(line.id)}
+                disabled={form.intro_lines.length <= 1}
+                className="shrink-0 rounded p-1 text-slate-400 hover:text-red-500 disabled:opacity-30"
+              >
+                <Trash2 size={15} />
+              </button>
+            </div>
+          ))}
+        </div>
+        <Button size="sm" variant="secondary" className="mt-3" onClick={() => addIntroLine()}>
+          <Plus size={14} /> เพิ่มบรรทัด
+        </Button>
       </Card>
 
       {/* ── Budget items ── */}
@@ -557,10 +659,6 @@ export default function MemoForm() {
           <Button onClick={() => handleExportFile('/api/memo/export-docx', 'memo.docx')} disabled={exporting}>
             <FileDown size={18} />
             {exporting ? 'กำลังสร้างเอกสาร...' : 'Export DOCX'}
-          </Button>
-          <Button variant="secondary" onClick={() => handleExportFile('/api/memo/export-pdf', 'memo.pdf')} disabled={exporting}>
-            <FileDown size={18} />
-            {exporting ? 'กำลังสร้างเอกสาร...' : 'Export PDF'}
           </Button>
         </div>
       </Card>

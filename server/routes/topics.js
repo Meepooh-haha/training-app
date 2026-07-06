@@ -12,8 +12,8 @@ router.get('/topics', h(async (req, res) => {
 
 router.post('/topics', h(async (req, res) => {
   await q.run(
-    `INSERT INTO training_topics (code,name_th,name_en,type,duration_hours,duration_minutes,is_continuous,speaker)
-     VALUES (@code,@name_th,@name_en,@type,@duration_hours,@duration_minutes,@is_continuous,@speaker)`,
+    `INSERT INTO training_topics (code,name_th,name_en,type,duration_hours,duration_minutes,is_continuous,speaker,subtopics)
+     VALUES (@code,@name_th,@name_en,@type,@duration_hours,@duration_minutes,@is_continuous,@speaker,@subtopics)`,
     normTopic(req.body),
   );
   res.json({ ok: true });
@@ -23,7 +23,7 @@ router.put('/topics/:code', h(async (req, res) => {
   await q.run(
     `UPDATE training_topics SET name_th=@name_th,name_en=@name_en,type=@type,
        duration_hours=@duration_hours,duration_minutes=@duration_minutes,is_continuous=@is_continuous,
-       speaker=@speaker
+       speaker=@speaker,subtopics=@subtopics
      WHERE code=@code`,
     { ...normTopic(req.body), code: req.params.code },
   );
@@ -45,6 +45,7 @@ function normTopic(t) {
     duration_minutes: Number(t.duration_minutes) || 0,
     is_continuous: t.is_continuous ? 1 : 0,
     speaker: t.speaker || '',
+    subtopics: String(t.subtopics || '').trim(),
   };
 }
 

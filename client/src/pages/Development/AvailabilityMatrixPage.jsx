@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useSearchParams, Link } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { ArrowLeft, Plus, X, Loader2, Calendar, Phone, Trophy } from 'lucide-react';
+import { Plus, X, Loader2, Calendar, Phone, Trophy } from 'lucide-react';
 import { api } from '../../lib/api.js';
+import { useProject } from './ProjectShell.jsx';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -90,19 +91,22 @@ function EntityRow({ entity, dates, onToggle, onRemove, savingKeys }) {
         const slot = entity.slots[date];
         const cfg = slot ? STATUS_CFG[slot.status] : null;
         const isSaving = savingKeys.has(key);
+        const isEmpty = !cfg && !isSaving;
         return (
           <td
             key={date}
             onClick={isSaving ? undefined : () => onToggle(entity, date, slot?.status)}
-            className="border border-slate-200 text-center text-xs font-semibold select-none transition-colors"
+            title={isSaving ? undefined : 'คลิกเพื่อสลับสถานะ: ว่าง → ติด → ??'}
+            className={`relative border text-center text-xs font-semibold select-none transition-all duration-100 ${isEmpty ? 'border-dashed' : 'border-solid'} ${isSaving ? '' : 'hover:z-10 hover:ring-2 hover:ring-inset hover:ring-maroon-400 hover:brightness-95'}`}
             style={{
               width: 80, minWidth: 80, height: 40,
               cursor: isSaving ? 'default' : 'pointer',
               background: isSaving ? '#F1ECEA' : (cfg ? cfg.bg : '#F8F5F4'),
-              color: isSaving ? '#C4BDBA' : (cfg ? cfg.color : '#C4BDBA'),
+              color: isSaving ? '#C4BDBA' : (cfg ? cfg.color : '#B8B0AC'),
+              borderColor: isEmpty ? '#C4BDBA' : '#E2E8F0',
             }}
           >
-            {isSaving ? '…' : (cfg ? cfg.label : '')}
+            {isSaving ? '…' : (cfg ? cfg.label : '+')}
           </td>
         );
       })}
@@ -141,64 +145,80 @@ function ModalFooter({ onClose, onConfirm, saving, disabled }) {
   );
 }
 
-const NO_DEPARTMENT_LABEL = 'ไม่ระบุแผนก';
-
-function groupByDepartment(employees) {
-  const groups = new Map();
-  for (const e of employees) {
-    const dept = e.department?.trim() || NO_DEPARTMENT_LABEL;
-    if (!groups.has(dept)) groups.set(dept, []);
-    groups.get(dept).push(e);
-  }
-  return [...groups.entries()]
-    .sort(([a], [b]) => a === NO_DEPARTMENT_LABEL ? 1 : b === NO_DEPARTMENT_LABEL ? -1 : a.localeCompare(b, 'th'))
-    .map(([dept, emps]) => [dept, emps.sort((a, b) => a.full_name.localeCompare(b.full_name, 'th'))]);
-}
-
+// ดึงจากรายชื่อกลางของโครงการ (project_participants) — กรอกรายชื่อครั้งเดียวใช้ทุก phase
+// เฉพาะคนที่เลือกจากข้อมูลหลัก (มี employee_code) เท่านั้นที่ติดตามวันว่างได้
 function AddParticipantModal({ projectId, existingRefs, onClose, onAdded }) {
-  const [employees, setEmployees] = useState([]);
-  const [selected, setSelected] = useState('');
+  const [candidates, setCandidates] = useState([]);
+  const [selected, setSelected] = useState(new Set());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    api.get('/employees')
-      .then(list => { setEmployees(list.filter(e => !existingRefs.has(e.code))); setLoading(false); })
+    api.get(`/training-projects/${projectId}/participants`)
+      .then(list => {
+        setCandidates(list.filter(p => p.employee_code && !existingRefs.has(p.employee_code)));
+        setLoading(false);
+      })
       .catch(e => { toast.error(e.message); setLoading(false); });
-  }, []);
+  }, []);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  function toggle(code) {
+    setSelected(prev => {
+      const s = new Set(prev);
+      s.has(code) ? s.delete(code) : s.add(code);
+      return s;
+    });
+  }
 
   async function confirm() {
-    if (!selected) { toast.error('กรุณาเลือกพนักงาน'); return; }
+    if (!selected.size) { toast.error('กรุณาเลือกผู้เข้าอบรม'); return; }
     setSaving(true);
     try {
-      await api.post('/availability', { training_project_id: projectId, entity_type: 'participant', entity_ref: selected, slot_date: todayStr(), status: 'available', note: null });
-      toast.success('เพิ่มผู้เข้าอบรมแล้ว');
+      for (const code of selected) {
+        await api.post('/availability', { training_project_id: projectId, entity_type: 'participant', entity_ref: code, slot_date: todayStr(), status: 'available', note: null });
+      }
+      toast.success(`เพิ่มผู้เข้าอบรม ${selected.size} คนเข้าตาราง`);
       onAdded(); onClose();
     } catch (e) { toast.error(e.message); }
     finally { setSaving(false); }
   }
 
-  const departmentGroups = groupByDepartment(employees);
-
   return (
-    <Modal title="เพิ่มผู้เข้าอบรม" onClose={onClose}>
+    <Modal title="เพิ่มผู้เข้าอบรมเข้าตารางวันว่าง" onClose={onClose}>
       {loading ? <div className="flex justify-center py-8"><Loader2 className="w-5 h-5 animate-spin text-ink-400" /></div> : (
         <div className="space-y-4">
-          <label className="block text-sm">
-            <span className="text-ink-700 font-medium">พนักงาน</span>
-            <select className="mt-1 w-full rounded-lg border border-ink-200 px-3 py-2 text-sm" value={selected} onChange={e => setSelected(e.target.value)}>
-              <option value="">— เลือก —</option>
-              {departmentGroups.map(([dept, emps]) => (
-                <optgroup key={dept} label={dept}>
-                  {emps.map(e => <option key={e.code} value={e.code}>{e.full_name} ({e.code})</option>)}
-                </optgroup>
-              ))}
-            </select>
-          </label>
-          {employees.length === 0 && (
-            <p className="text-xs text-ink-400">พนักงานทั้งหมดถูกเพิ่มไว้ในโครงการนี้แล้ว</p>
+          {candidates.length === 0 ? (
+            <p className="text-sm text-ink-500">
+              รายชื่อกลางของโครงการถูกเพิ่มเข้าตารางครบแล้ว หรือยังไม่มีรายชื่อ —{' '}
+              <Link to={`/development/workflow/${projectId}/participants`} className="underline underline-offset-2 hover:text-ink-800">
+                จัดการรายชื่อผู้เข้าอบรม
+              </Link>
+            </p>
+          ) : (
+            <>
+              <div className="flex items-center justify-between text-xs text-ink-500">
+                <span>จากรายชื่อกลางของโครงการ</span>
+                <button
+                  type="button"
+                  onClick={() => setSelected(new Set(candidates.map(p => p.employee_code)))}
+                  className="underline underline-offset-2 hover:text-ink-800"
+                >
+                  เลือกทั้งหมด ({candidates.length})
+                </button>
+              </div>
+              <div className="max-h-56 overflow-y-auto rounded-lg border border-ink-100 divide-y divide-ink-50">
+                {candidates.map(p => (
+                  <label key={p.employee_code} className="flex items-center gap-3 px-3 py-2 text-sm hover:bg-ink-50 cursor-pointer">
+                    <input type="checkbox" checked={selected.has(p.employee_code)} onChange={() => toggle(p.employee_code)} />
+                    <span className="font-mono text-xs text-ink-400 w-16 shrink-0">{p.employee_code}</span>
+                    <span className="flex-1 truncate">{p.name}</span>
+                    <span className="text-xs text-ink-400 truncate max-w-[8rem]">{p.department || ''}</span>
+                  </label>
+                ))}
+              </div>
+            </>
           )}
-          <ModalFooter onClose={onClose} onConfirm={confirm} saving={saving} disabled={!selected} />
+          <ModalFooter onClose={onClose} onConfirm={confirm} saving={saving} disabled={!selected.size} />
         </div>
       )}
     </Modal>
@@ -446,8 +466,8 @@ function Step2({ candidateDates, matrixData, onToggle, onRemove, savingKeys, onA
           </div>
         ))}
         <div className="flex items-center gap-1.5">
-          <div className="w-4 h-4 rounded" style={{ background: '#F8F5F4', border: '1px solid #C4BDBA' }} />
-          <span className="text-ink-500">ยังไม่กรอก</span>
+          <div className="w-4 h-4 rounded flex items-center justify-center text-[10px] font-bold" style={{ background: '#F8F5F4', border: '1px dashed #C4BDBA', color: '#B8B0AC' }}>+</div>
+          <span className="text-ink-500">ยังไม่กรอก (คลิกเพื่อกรอก)</span>
         </div>
       </div>
 
@@ -505,7 +525,7 @@ function StatusTag({ ok, label }) {
   );
 }
 
-function Step3({ ranking, onPrev, onRefresh, loading }) {
+function Step3({ ranking, onPrev, onRefresh, loading, confirmedDate, onConfirmDate }) {
   if (loading) {
     return <div className="flex justify-center py-16"><Loader2 className="w-6 h-6 animate-spin text-ink-400" /></div>;
   }
@@ -554,6 +574,19 @@ function Step3({ ranking, onPrev, onRefresh, loading }) {
                 <div className="flex items-center gap-2">
                   <StatusTag ok={r.instructor_ok} label="วิทยากร" />
                   <StatusTag ok={r.venue_ok} label="สถานที่" />
+                  {confirmedDate === r.date ? (
+                    <span className="px-2.5 py-1 rounded-lg text-xs font-semibold" style={{ background: '#E3F4EC', color: '#1E7A52' }}>
+                      ✓ วันอบรมของโครงการ
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => onConfirmDate(r.date)}
+                      className="px-2.5 py-1 rounded-lg text-xs font-semibold text-white transition-opacity hover:opacity-90"
+                      style={{ background: '#710F16' }}
+                    >
+                      ใช้วันนี้เป็นวันอบรม
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -590,11 +623,9 @@ function Step3({ ranking, onPrev, onRefresh, loading }) {
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function AvailabilityMatrixPage() {
-  const [searchParams] = useSearchParams();
-  const deepLinkId = searchParams.get('projectId');
+  const { projectId: projectIdNum, project, reload: reloadShell } = useProject();
+  const projectId = String(projectIdNum);
 
-  const [projects, setProjects] = useState([]);
-  const [projectId, setProjectId] = useState('');
   const [step, setStep] = useState(1);
   const [candidateDates, setCandidateDates] = useState([]);
   const [matrixData, setMatrixData] = useState({ participants: [], instructors: [], venues: [] });
@@ -603,13 +634,6 @@ export default function AvailabilityMatrixPage() {
   const [rankingLoading, setRankingLoading] = useState(false);
   const [savingKeys, setSavingKeys] = useState(new Set());
   const [addModal, setAddModal] = useState(null);
-
-  useEffect(() => {
-    api.get('/training-projects').then(list => {
-      setProjects(list);
-      if (deepLinkId && list.some(p => String(p.id) === deepLinkId)) setProjectId(deepLinkId);
-    }).catch(e => toast.error(e.message));
-  }, []);  // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadAll = useCallback(async () => {
     if (!projectId) return;
@@ -707,53 +731,33 @@ export default function AvailabilityMatrixPage() {
     venue: new Set(matrixData.venues.map(e => e.entity_ref)),
   };
 
-  const backProject = deepLinkId ? projects.find(p => String(p.id) === deepLinkId) : null;
-
   function goStep3() { setStep(3); loadRanking(); }
+
+  // สรุปวันจากผลจัดอันดับ → เขียนเป็นวันอบรมของโครงการ (กำหนดการ Phase 2 seed ต่อจากวันนี้)
+  async function confirmDate(date) {
+    if (project.training_date && project.training_date !== date &&
+        !window.confirm(`โครงการมีวันอบรมเดิม ${project.training_date} อยู่แล้ว\nเปลี่ยนเป็น ${date}?`)) return;
+    try {
+      await api.patch(`/training-projects/${projectId}/details`, { training_date: date, end_date: date });
+      toast.success(`ตั้งวันอบรมเป็น ${date} แล้ว`);
+      await reloadShell();
+    } catch (e) {
+      toast.error(e.message);
+    }
+  }
 
   return (
     <div className="space-y-5 font-body">
-      {backProject && (
-        <Link to={`/development/workflow/${deepLinkId}`} className="inline-flex items-center gap-1.5 text-sm text-ink-500 hover:text-ink-800 transition-colors">
-          <ArrowLeft className="w-4 h-4" /> กลับไปที่ Workflow: {backProject.name}
-        </Link>
-      )}
-
       <div>
-        <h1 className="text-2xl font-bold text-ink-900 font-display">จัดหาวันจัดอบรม</h1>
+        <h2 className="text-xl font-bold text-ink-900 font-display">จัดหาวันจัดอบรม</h2>
         <p className="text-sm text-ink-500 mt-0.5">กรอง → ถาม → จัดอันดับ ทีละขั้นตอน</p>
       </div>
 
-      <div>
-        <span className="text-ink-700 font-medium text-sm block mb-1">โครงการฝึกอบรม</span>
-        {backProject ? (
-          <div className="rounded-lg border border-ink-200 px-3 py-2 text-sm w-72 font-semibold text-ink-900" style={{ background: '#FAF7F6' }}>
-            {backProject.name}
-            <span className="ml-1.5 text-xs font-normal text-ink-400">({backProject.quarter}/{backProject.year})</span>
-          </div>
-        ) : (
-          <select
-            className="rounded-lg border border-ink-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-maroon-300 w-72"
-            value={projectId}
-            onChange={e => { setProjectId(e.target.value); setStep(1); }}
-          >
-            <option value="">— เลือกโครงการ —</option>
-            {projects.map(p => <option key={p.id} value={String(p.id)}>{p.name} ({p.quarter}/{p.year})</option>)}
-          </select>
-        )}
-      </div>
-
-      {!projectId && (
-        <div className="rounded-xl border border-slate-200 py-20 text-center text-sm text-ink-400" style={{ background: '#FAF7F6' }}>
-          เลือกโครงการฝึกอบรมเพื่อเริ่ม
-        </div>
-      )}
-
-      {projectId && loading && (
+      {loading && (
         <div className="flex justify-center py-16"><Loader2 className="w-6 h-6 animate-spin text-ink-400" /></div>
       )}
 
-      {projectId && !loading && (
+      {!loading && (
         <>
           <StepIndicator step={step} onSelect={setStep} />
 
@@ -787,6 +791,8 @@ export default function AvailabilityMatrixPage() {
               onPrev={() => setStep(2)}
               onRefresh={loadRanking}
               loading={rankingLoading}
+              confirmedDate={project.training_date}
+              onConfirmDate={confirmDate}
             />
           )}
         </>

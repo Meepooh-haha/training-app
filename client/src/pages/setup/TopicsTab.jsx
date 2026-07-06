@@ -3,9 +3,9 @@ import toast from 'react-hot-toast';
 import { api } from '../../lib/api.js';
 import DataGrid from '../../components/DataGrid.jsx';
 import Modal, { ModalFooter } from '../../components/Modal.jsx';
-import { Field, Input, Select, Badge } from '../../components/ui.jsx';
+import { Field, Input, Select, Textarea, Badge } from '../../components/ui.jsx';
 
-const EMPTY = { code: '', name_th: '', name_en: '', type: 'บรรยาย', duration_hours: 0, duration_minutes: 0, is_continuous: false, speaker: '' };
+const EMPTY = { code: '', name_th: '', name_en: '', type: 'บรรยาย', duration_hours: 0, duration_minutes: 0, is_continuous: false, speaker: '', subtopics: '' };
 const REQUIRED = ['code', 'name_th'];
 
 export default function TopicsTab() {
@@ -119,6 +119,14 @@ export default function TopicsTab() {
           </Field>
           <Field label="วิทยากร" className="sm:col-span-2">
             <Input value={form.speaker} onChange={(e) => set('speaker', e.target.value)} placeholder="ชื่อวิทยากร / หน่วยงาน" />
+          </Field>
+          <Field label="หัวข้อย่อย (1 บรรทัด = 1 ข้อ — จะ seed เข้ากำหนดการของโครงการ)" className="sm:col-span-2">
+            <Textarea
+              rows={4}
+              value={form.subtopics || ''}
+              onChange={(e) => set('subtopics', e.target.value)}
+              placeholder={'เช่น\nความสำคัญของการบริหารเป้าหมาย\nWorkshop: ฝึกปฏิบัติจากโจทย์จำลอง'}
+            />
           </Field>
           <Field label="ระยะเวลา (ชั่วโมง)">
             <Input type="number" min="0" value={form.duration_hours} onChange={(e) => set('duration_hours', e.target.value)} />

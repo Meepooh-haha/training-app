@@ -121,21 +121,52 @@ const HUB_CX = workflowHubs.map((_, i) =>
   HUB_MARGIN_X + i * ((CANVAS_W - 2 * HUB_MARGIN_X) / Math.max(workflowHubs.length - 1, 1))
 );
 
-const VENDOR_SAT_COLORS = {
-  ok:      { bg: '#E3F4EC', border: '#1E7A52', color: '#1E7A52' },
+// สีตามสถานะจริงของงานใน satellite นั้น: done = เสร็จแล้ว, warning = เริ่มแล้ว
+// แต่ยังไม่จบ, none = ยังไม่เริ่ม (มาจาก GET /training-projects/:id/status)
+const SAT_STATE_COLORS = {
+  done:    { bg: '#E3F4EC', border: '#1E7A52', color: '#1E7A52' },
   warning: { bg: '#FEF3C7', border: '#F59E0B', color: '#92400E' },
   none:    { bg: '#F1ECEA', border: '#C4BDBA', color: '#78716E' },
 };
 
-function satStyle(sat, vendorStatus) {
-  if (sat.dynamicStatus && sat.id === 'vendor_check') {
-    const cfg = VENDOR_SAT_COLORS[vendorStatus] ?? VENDOR_SAT_COLORS.none;
-    return { background: cfg.bg, border: `2px solid ${cfg.border}`, color: cfg.color };
+function satState(sat, status, vendorStatus) {
+  if (sat.id === 'vendor_check') {
+    return vendorStatus === 'ok' ? 'done' : vendorStatus === 'warning' ? 'warning' : 'none';
   }
-  return { background: '#FEF3C7', border: '2px solid #F59E0B', color: '#92400E' };
+  if (!status) return 'none';
+  switch (sat.id) {
+    case 'availability':
+      return status.availability?.date_confirmed ? 'done'
+        : (status.availability?.candidate_dates > 0 ? 'warning' : 'none');
+    case 'pr_issuance':
+      return status.pr?.issued > 0 ? 'done' : 'none';
+    case 'memo_issuance':
+      // memo ไม่มีตารางของตัวเอง — อนุมานจากสถานะอนุมัติ (pending = ส่ง Memo แล้ว)
+      return status.approval?.status === 'approved' ? 'done'
+        : status.approval?.status === 'pending' ? 'warning' : 'none';
+    case 'registration':
+      return status.registration?.exists ? 'done' : 'none';
+    case 'schedule':
+      return status.schedule?.topics > 0 ? 'done' : 'none';
+    case 'evaluation':
+      return status.evaluation?.count > 0 ? 'done' : 'none';
+    case 'training_records':
+      return status.records?.count > 0 ? 'done' : 'none';
+    case 'summary_report':
+    case 'dsd_export':
+      // หน้ารายงานอ่านอย่างเดียว — ถือว่าพร้อมเมื่อบันทึกประวัติแล้ว
+      return status.records?.count > 0 ? 'done' : 'none';
+    default:
+      return 'none'; // invoice_intake ฯลฯ — ยังไม่มีข้อมูลให้อนุมาน
+  }
 }
 
-export default function HubSatelliteGraph({ preset, projectId }) {
+function satStyle(sat, status, vendorStatus) {
+  const cfg = SAT_STATE_COLORS[satState(sat, status, vendorStatus)];
+  return { background: cfg.bg, border: `2px solid ${cfg.border}`, color: cfg.color };
+}
+
+export default function HubSatelliteGraph({ preset, projectId, status, delivery = 'inhouse' }) {
   const [selectedId, setSelectedId] = useState(null);
   const [vendorStatus, setVendorStatus] = useState('none');
   const navigate = useNavigate();
@@ -146,6 +177,11 @@ export default function HubSatelliteGraph({ preset, projectId }) {
       .then(d => setVendorStatus(d.status ?? 'none'))
       .catch(() => {});
   }, [projectId]);
+
+  // Public = ส่งไปเรียนข้างนอก — ซ่อน satellite ที่ไม่เกี่ยว (หาวัน/ลงทะเบียน);
+  // ลูกที่ parent หายไปจะถูก getSatelliteOffsets จัดเป็น root ให้เอง
+  const visibleSats = (hub) =>
+    delivery === 'public' ? hub.satellites.filter(s => !s.publicHidden) : hub.satellites;
 
   const byId     = Object.fromEntries((preset?.nodes ?? []).map(n => [n.id, n]));
   const selected = selectedId ? byId[selectedId] : null;
@@ -205,11 +241,12 @@ export default function HubSatelliteGraph({ preset, projectId }) {
           {/* Hub-to-satellite connector lines — each satellite links from its
               `parent` sibling (chain), or from the hub center if it has none. */}
           {workflowHubs.map((hub, i) => {
-            const offsets  = getSatelliteOffsets(hub.satellites);
-            const posById  = Object.fromEntries(hub.satellites.map((s, j) => [s.id, offsets[j]]));
-            return hub.satellites.map((sat, j) => {
+            const sats     = visibleSats(hub);
+            const offsets  = getSatelliteOffsets(sats);
+            const posById  = Object.fromEntries(sats.map((s, j) => [s.id, offsets[j]]));
+            return sats.map((sat, j) => {
               const { x, y } = offsets[j];
-              const from = sat.parent ? posById[sat.parent] : { x: 0, y: 0 };
+              const from = (sat.parent && posById[sat.parent]) ? posById[sat.parent] : { x: 0, y: 0 };
               return (
                 <line
                   key={`sat-line-${hub.id}-${sat.id}`}
@@ -269,15 +306,16 @@ export default function HubSatelliteGraph({ preset, projectId }) {
 
         {/* Satellite circles (HTML) */}
         {workflowHubs.map((hub, i) => {
-          const offsets = getSatelliteOffsets(hub.satellites);
-          return hub.satellites.map((sat, j) => {
+          const sats    = visibleSats(hub);
+          const offsets = getSatelliteOffsets(sats);
+          return sats.map((sat, j) => {
             const { x, y } = offsets[j];
             const satX = HUB_CX[i] + x;
             const satY = HUB_Y + y;
             return (
               <button
                 key={`${hub.id}-${sat.id}`}
-                onClick={() => navigate(`${sat.route}?projectId=${projectId}`)}
+                onClick={() => navigate(`/development/workflow/${projectId}/${sat.route}`)}
                 title={sat.label}
                 className="absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center group"
                 style={{
@@ -287,7 +325,7 @@ export default function HubSatelliteGraph({ preset, projectId }) {
               >
                 <div
                   className="w-11 h-11 rounded-full flex items-center justify-center transition-transform group-hover:scale-110 shadow-sm"
-                  style={satStyle(sat, vendorStatus)}
+                  style={satStyle(sat, status, vendorStatus)}
                 >
                   <span className="text-[9px] font-semibold leading-tight text-center px-0.5">
                     {sat.label}

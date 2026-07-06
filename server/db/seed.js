@@ -62,39 +62,36 @@ export async function seedIfEmpty(db) {
     { sql: 'INSERT INTO eval_form_items (form_code,item_code,sequence,weight,scale_type) VALUES (?,?,?,?,?)', args: ['INT-01', 'INT-CO-005', 5, 1, 'ระดับ'] },
   ], 'write');
 
-  const sampleReqs = [
-    { req_no: `TR-${y}-001`, course_code: 'HR-INT-001', training_date: `${y}-02-10`, end_date: `${y}-02-10`, location: 'ห้องประชุมใหญ่ ชั้น 5', trainer_name: 'คุณสมชาย ใจดี', trainer_org: 'ภายในองค์กร', budget_instructor: 8000, budget_venue: 0, budget_food: 4000, budget_material: 1500, budget_other: 500, attendee_count: 20, objective: 'เพื่อให้พนักงานใหม่เข้าใจวัฒนธรรมองค์กร', target_group: 'พนักงานเข้าใหม่', status: 'approved', created_at: `${y}-01-20`, approved_by: 'ผู้จัดการฝ่ายบุคคล', approved_at: `${y}-01-25`, notes: '' },
-    { req_no: `TR-${y}-002`, course_code: 'HR-INT-002', training_date: `${y}-03-15`, end_date: `${y}-03-15`, location: 'ห้องอบรม A', trainer_name: 'คุณวิภา ปลอดภัย', trainer_org: 'บริษัท Safety First', budget_instructor: 15000, budget_venue: 5000, budget_food: 6000, budget_material: 2000, budget_other: 1000, attendee_count: 30, objective: 'สร้างความตระหนักด้านความปลอดภัย', target_group: 'พนักงานทุกแผนก', status: 'approved', created_at: `${y}-02-28`, approved_by: 'ผู้จัดการโรงงาน', approved_at: `${y}-03-02`, notes: '' },
-    { req_no: `TR-${y}-003`, course_code: 'HR-INT-003', training_date: `${y}-05-01`, end_date: `${y}-05-02`, location: 'โรงแรม ABC', trainer_name: 'ดร.ประเสริฐ นำชัย', trainer_org: 'สถาบันพัฒนาผู้นำ', budget_instructor: 40000, budget_venue: 20000, budget_food: 15000, budget_material: 5000, budget_other: 3000, attendee_count: 15, objective: 'พัฒนาทักษะภาวะผู้นำ', target_group: 'หัวหน้างาน', status: 'pending', created_at: `${y}-04-10`, approved_by: '', approved_at: '', notes: 'รออนุมัติงบประมาณ' },
-    { req_no: `TR-${y}-004`, course_code: 'HR-INT-004', training_date: `${y}-06-20`, end_date: `${y}-06-20`, location: 'ห้องอบรม B', trainer_name: 'คุณนภา บริการ', trainer_org: 'ภายในองค์กร', budget_instructor: 6000, budget_venue: 0, budget_food: 3000, budget_material: 1000, budget_other: 0, attendee_count: 12, objective: 'ยกระดับการบริการลูกค้า', target_group: 'ฝ่ายบริการลูกค้า', status: 'draft', created_at: `${y}-06-01`, approved_by: '', approved_at: '', notes: '' },
-    { req_no: `TR-${y}-005`, course_code: 'HR-INT-005', training_date: `${y}-07-05`, end_date: `${y}-07-05`, location: 'ห้องคอมพิวเตอร์', trainer_name: 'คุณธนา เทคโน', trainer_org: 'ภายในองค์กร', budget_instructor: 10000, budget_venue: 0, budget_food: 3500, budget_material: 1500, budget_other: 0, attendee_count: 18, objective: 'ใช้งานระบบ ERP ได้อย่างถูกต้อง', target_group: 'ผู้ใช้งานระบบ', status: 'approved', created_at: `${y}-06-15`, approved_by: 'ผู้จัดการ IT', approved_at: `${y}-06-18`, notes: '' },
+  // โครงการตัวอย่าง (โครงการ = ใบขออนุมัติในตัว)
+  const beYear = y + 543;
+  const sampleProjects = [
+    { name: 'ปฐมนิเทศพนักงานใหม่', course_code: 'HR-INT-001', quarter: 'Q1', req_no: `TR-${y}-001`, training_date: `${y}-02-10`, end_date: `${y}-02-10`, location: 'ห้องประชุมใหญ่ ชั้น 5', trainer_name: 'คุณสมชาย ใจดี', trainer_org: 'ภายในองค์กร', budget_instructor: 8000, budget_venue: 0, budget_food: 4000, budget_material: 1500, budget_other: 500, objective: 'เพื่อให้พนักงานใหม่เข้าใจวัฒนธรรมองค์กร', target_group: 'พนักงานเข้าใหม่', approval_status: 'approved', approved_by: 'ผู้จัดการฝ่ายบุคคล', approved_at: `${y}-01-25`, current_step: 3 },
+    { name: 'อบรมความปลอดภัยพื้นฐานประจำปี', course_code: 'HR-INT-002', quarter: 'Q2', req_no: `TR-${y}-002`, training_date: `${y}-03-15`, end_date: `${y}-03-15`, location: 'ห้องอบรม A', trainer_name: 'คุณวิภา ปลอดภัย', trainer_org: 'บริษัท Safety First', budget_instructor: 15000, budget_venue: 5000, budget_food: 6000, budget_material: 2000, budget_other: 1000, objective: 'สร้างความตระหนักด้านความปลอดภัย', target_group: 'พนักงานทุกแผนก', approval_status: 'pending', approved_by: '', approved_at: null, current_step: 1 },
   ];
 
-  const reqSql = `INSERT INTO training_requests
-    (req_no,course_code,training_date,end_date,location,trainer_name,trainer_org,
-     budget_instructor,budget_venue,budget_food,budget_material,budget_other,
-     attendee_count,objective,target_group,status,created_at,approved_by,approved_at,notes)
-   VALUES (@req_no,@course_code,@training_date,@end_date,@location,@trainer_name,@trainer_org,
-     @budget_instructor,@budget_venue,@budget_food,@budget_material,@budget_other,
-     @attendee_count,@objective,@target_group,@status,@created_at,@approved_by,@approved_at,@notes)
+  const projSql = `INSERT INTO training_projects
+    (name,course_code,quarter,year,current_step,req_no,training_date,end_date,location,
+     trainer_name,trainer_org,budget_instructor,budget_venue,budget_food,budget_material,
+     budget_other,objective,target_group,approval_status,approved_by,approved_at)
+   VALUES (@name,@course_code,@quarter,@year,@current_step,@req_no,@training_date,@end_date,@location,
+     @trainer_name,@trainer_org,@budget_instructor,@budget_venue,@budget_food,@budget_material,
+     @budget_other,@objective,@target_group,@approval_status,@approved_by,@approved_at)
    RETURNING id`;
 
   const ids = [];
-  for (const r of sampleReqs) {
-    const result = await db.execute({ sql: reqSql, args: r });
+  for (const p of sampleProjects) {
+    const result = await db.execute({ sql: projSql, args: { ...p, year: beYear } });
     ids.push(result.rows[0].id);
   }
 
   await db.batch([
-    { sql: 'INSERT INTO request_attendees (req_id,employee_id,name,department,position) VALUES (?,?,?,?,?)', args: [ids[0], 'EMP-101', 'นายกิตติ วงศ์ทอง', 'ผลิต', 'พนักงานฝ่ายผลิต'] },
-    { sql: 'INSERT INTO request_attendees (req_id,employee_id,name,department,position) VALUES (?,?,?,?,?)', args: [ids[0], 'EMP-102', 'นางสาวมาลี ศรีสุข', 'บัญชี', 'เจ้าหน้าที่บัญชี'] },
-    { sql: 'INSERT INTO request_attendees (req_id,employee_id,name,department,position) VALUES (?,?,?,?,?)', args: [ids[0], 'EMP-103', 'นายอนุชา รุ่งเรือง', 'คลังสินค้า', 'พนักงานคลัง'] },
-    { sql: 'INSERT INTO request_schedule (req_id,date,start_time,end_time,topic,trainer) VALUES (?,?,?,?,?,?)', args: [ids[0], `${y}-02-10`, '09:00', '12:00', 'การทำงานเป็นทีม', 'คุณสมชาย ใจดี'] },
-    { sql: 'INSERT INTO request_schedule (req_id,date,start_time,end_time,topic,trainer) VALUES (?,?,?,?,?,?)', args: [ids[0], `${y}-02-10`, '13:00', '16:00', 'การสื่อสารในองค์กร', 'คุณสมชาย ใจดี'] },
+    { sql: 'INSERT INTO project_participants (project_id,employee_code,name,department,position) VALUES (?,?,?,?,?)', args: [ids[0], 'EMP-101', 'นายกิตติ วงศ์ทอง', 'ผลิต', 'พนักงานฝ่ายผลิต'] },
+    { sql: 'INSERT INTO project_participants (project_id,employee_code,name,department,position) VALUES (?,?,?,?,?)', args: [ids[0], 'EMP-102', 'นางสาวมาลี ศรีสุข', 'บัญชี', 'เจ้าหน้าที่บัญชี'] },
+    { sql: 'INSERT INTO project_participants (project_id,employee_code,name,department,position) VALUES (?,?,?,?,?)', args: [ids[0], 'EMP-103', 'นายอนุชา รุ่งเรือง', 'คลังสินค้า', 'พนักงานคลัง'] },
   ], 'write');
 
   const evalResult = await db.execute({
-    sql: 'INSERT INTO training_evaluations (req_id,eval_form_code,evaluator_name,eval_date,total_score,status) VALUES (?,?,?,?,?,?) RETURNING id',
+    sql: 'INSERT INTO training_evaluations (project_id,eval_form_code,evaluator_name,eval_date,total_score,status) VALUES (?,?,?,?,?,?) RETURNING id',
     args: [ids[0], 'INT-01', 'ฝ่ายบุคคล', `${y}-02-11`, 4.2, 'pass'],
   });
   const evalId = evalResult.rows[0].id;

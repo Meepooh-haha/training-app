@@ -35,8 +35,13 @@ const EMPTY = {
 const money = (n) =>
   Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-export default function PRForm() {
-  const [form, setForm] = useState(EMPTY);
+// `project` (optional): เมื่อออก PR จากใต้โครงการอบรม — เลขที่ PR จะถูกผูกกับ
+// โครงการใน ledger และเหตุผลการขอถูก prefill จากชื่อโครงการ
+export default function PRForm({ project }) {
+  const [form, setForm] = useState(() => ({
+    ...EMPTY,
+    reason: project ? `ค่าใช้จ่ายโครงการฝึกอบรม "${project.name}" (${project.req_no || ''})`.trim() : EMPTY.reason,
+  }));
   const [errors, setErrors] = useState({});
   const [exporting, setExporting] = useState(false);
   const [departments, setDepartments] = useState([]);
@@ -86,7 +91,8 @@ export default function PRForm() {
     setExporting(true);
     try {
       const { pr_no, ...payload } = form; // pr_no is always server-assigned
-      const res = await fetch('/api/pr/export-pdf', {
+      if (project?.id) payload.project_id = project.id;
+      const res = await fetch('/api/pr/export-xlsx', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -100,7 +106,7 @@ export default function PRForm() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${issuedPrNo}.pdf`;
+      a.download = `${issuedPrNo}.xlsx`;
       a.click();
       URL.revokeObjectURL(url);
       setForm((f) => ({ ...f, pr_no: issuedPrNo }));
@@ -301,7 +307,7 @@ export default function PRForm() {
       <Card className="p-5">
         <Button onClick={handleExport} disabled={exporting} size="lg">
           <FileDown size={18} />
-          {exporting ? 'กำลังสร้างเอกสาร...' : 'ออกใบ PR (PDF)'}
+          {exporting ? 'กำลังสร้างเอกสาร...' : 'ออกใบ PR (XLSX)'}
         </Button>
         {form.pr_no && (
           <p className="mt-3 text-sm text-slate-600">

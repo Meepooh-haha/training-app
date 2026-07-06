@@ -2,15 +2,11 @@ import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import { api } from '../lib/api.js';
 import FileUpload from '../components/FileUpload.jsx';
-import ExportButton from '../components/ExportButton.jsx';
 import { Field, Input, Select, Textarea, Button, Card, Badge } from '../components/ui.jsx';
-import { exportEvalSummary } from '../lib/pdf-generator.js';
 
-export default function Evaluation() {
-  const [requests, setRequests] = useState([]);
-  const [courses, setCourses] = useState([]);
+// ประเมินผลของโครงการ — ผูกกับ training_projects โดยตรง (ไม่มี dropdown เลือกคำขอแล้ว)
+export default function Evaluation({ project, onSaved }) {
   const [forms, setForms] = useState([]);
-  const [reqId, setReqId] = useState('');
   const [formCode, setFormCode] = useState('');
   const [form, setForm] = useState(null); // loaded eval form (with items)
   const [evalId, setEvalId] = useState(null);
@@ -23,23 +19,17 @@ export default function Evaluation() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    api.get('/requests').then(setRequests).catch((e) => toast.error(e.message));
-    api.get('/courses').then(setCourses).catch(() => {});
     api.get('/eval-forms').then(setForms).catch(() => {});
   }, []);
 
-  // When a request is chosen, look for an existing evaluation to edit.
-  async function selectRequest(id) {
-    setReqId(id);
+  // โหลดผลประเมินเดิมของโครงการนี้ (ถ้ามี) มาแก้ต่อ
+  useEffect(() => {
     resetEval();
-    if (!id) return;
-    try {
-      const existing = await api.get(`/evaluations?req_id=${id}`);
-      if (existing.length) await loadEvaluation(existing[0].id);
-    } catch (e) {
-      toast.error(e.message);
-    }
-  }
+    api.get(`/evaluations?project_id=${project.id}`)
+      .then((existing) => { if (existing.length) return loadEvaluation(existing[0].id); })
+      .catch((e) => toast.error(e.message));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project.id]);
 
   function resetEval() {
     setFormCode('');
@@ -82,12 +72,11 @@ export default function Evaluation() {
   const liveAvg = entered.length ? entered.reduce((s, r) => s + Number(r.score), 0) / entered.length : 0;
 
   async function save() {
-    if (!reqId) return toast.error('กรุณาเลือกคำขออบรม');
     if (!formCode) return toast.error('กรุณาเลือกแบบประเมิน');
     setSaving(true);
     try {
       const payload = {
-        req_id: Number(reqId),
+        project_id: project.id,
         eval_form_code: formCode,
         evaluator_name: evaluator,
         eval_date: evalDate,
@@ -105,6 +94,7 @@ export default function Evaluation() {
         setAttachments(reloaded.attachments || []);
       }
       toast.success('บันทึกผลประเมินสำเร็จ');
+      onSaved?.();
     } catch (e) {
       toast.error(e.message);
     } finally {
@@ -122,43 +112,17 @@ export default function Evaluation() {
     }
   }
 
-  function doExport() {
-    if (!result) return toast.error('กรุณาบันทึกก่อนพิมพ์เอกสาร');
-    const request = requests.find((r) => String(r.id) === String(reqId));
-    const course = courses.find((c) => c.code === request?.course_code);
-    const ev = {
-      id: evalId,
-      eval_form_code: formCode,
-      evaluator_name: evaluator,
-      eval_date: evalDate,
-      total_score: result.total_score,
-      status: result.status,
-      responses: Object.entries(responses).map(([item_code, r]) => ({ item_code, score: r.score, comment: r.comment })),
-    };
-    exportEvalSummary(ev, form, request, course).catch(e => toast.error(e.message, { duration: 8000 }));
-  }
-
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-2xl font-bold text-slate-800">ประเมินผลการอบรม</h1>
+        <h2 className="text-xl font-bold text-slate-800">ประเมินผลการอบรม</h2>
         <p className="text-sm text-slate-500">บันทึกผลการประเมินและแนบเอกสาร</p>
       </div>
 
       <Card className="p-5">
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <Field label="คำขออบรม">
-            <Select value={reqId} onChange={(e) => selectRequest(e.target.value)}>
-              <option value="">— เลือกคำขอ —</option>
-              {requests.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.req_no} · {r.course_name_th}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="แบบประเมิน">
-            <Select value={formCode} disabled={!reqId} onChange={(e) => loadForm(e.target.value)}>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <Field label="แบบประเมิน (จากข้อมูลหลัก)">
+            <Select value={formCode} onChange={(e) => loadForm(e.target.value)}>
               <option value="">— เลือกแบบประเมิน —</option>
               {forms.map((f) => (
                 <option key={f.code} value={f.code}>
@@ -249,11 +213,6 @@ export default function Evaluation() {
                 )}
               </div>
               <div className="flex gap-2">
-                <ExportButton
-                  label="พิมพ์สรุปผล"
-                  disabled={!result}
-                  actions={[{ label: 'Evaluation Summary (PDF)', onClick: doExport }]}
-                />
                 <Button onClick={save} disabled={saving}>
                   {saving ? 'กำลังบันทึก...' : 'บันทึกผลประเมิน'}
                 </Button>

@@ -7,9 +7,9 @@ const h = (fn) => async (req, res, next) => {
 };
 
 router.get('/evaluations', h(async (req, res) => {
-  const { req_id } = req.query;
-  const rows = req_id
-    ? await q.all('SELECT * FROM training_evaluations WHERE req_id=? ORDER BY id DESC', [req_id])
+  const { project_id } = req.query;
+  const rows = project_id
+    ? await q.all('SELECT * FROM training_evaluations WHERE project_id=? ORDER BY id DESC', [project_id])
     : await q.all('SELECT * FROM training_evaluations ORDER BY id DESC');
   res.json(rows);
 }));
@@ -44,7 +44,7 @@ async function saveEval(id, body) {
   const total = await computeScore(body.eval_form_code, responses);
   const status = total >= 3 ? 'pass' : 'fail';
   const params = {
-    req_id: body.req_id || null,
+    project_id: body.project_id || null,
     eval_form_code: body.eval_form_code || '',
     evaluator_name: body.evaluator_name || '',
     eval_date: body.eval_date || new Date().toISOString().slice(0, 10),
@@ -57,15 +57,15 @@ async function saveEval(id, body) {
     let evalId = id;
     if (evalId) {
       await tx.execute({
-        sql: `UPDATE training_evaluations SET req_id=@req_id,eval_form_code=@eval_form_code,
+        sql: `UPDATE training_evaluations SET project_id=@project_id,eval_form_code=@eval_form_code,
                 evaluator_name=@evaluator_name,eval_date=@eval_date,total_score=@total_score,status=@status
               WHERE id=@id`,
         args: { ...params, id: evalId },
       });
     } else {
       const r = await tx.execute({
-        sql: `INSERT INTO training_evaluations (req_id,eval_form_code,evaluator_name,eval_date,total_score,status)
-              VALUES (@req_id,@eval_form_code,@evaluator_name,@eval_date,@total_score,@status)
+        sql: `INSERT INTO training_evaluations (project_id,eval_form_code,evaluator_name,eval_date,total_score,status)
+              VALUES (@project_id,@eval_form_code,@evaluator_name,@eval_date,@total_score,@status)
               RETURNING id`,
         args: params,
       });

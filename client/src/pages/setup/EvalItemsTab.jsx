@@ -5,9 +5,19 @@ import DataGrid from '../../components/DataGrid.jsx';
 import Modal, { ModalFooter } from '../../components/Modal.jsx';
 import { Field, Input, Select, Textarea } from '../../components/ui.jsx';
 
-const EMPTY = { code: '', name_th: '', name_en: '', eval_type: 'ประเมินผู้เข้าร่วมอบรม', detail: '' };
+const EMPTY = { code: '', name_th: '', name_en: '', eval_type: 'ประเมินผู้เข้าร่วมอบรม', detail: '', dsd_topic: '' };
 const TYPES = ['ประเมินผู้เข้าร่วมอบรม', 'ประเมินวิทยากร', 'ประเมินหลักสูตร', 'ประเมินการจัดอบรม'];
 const REQUIRED = ['code', 'name_th'];
+
+// หัวข้อประเมินศักยภาพตามฟอร์มกรมพัฒนาฝีมือแรงงาน — ติดป้ายไว้เพื่อให้ระบบ
+// convert ผลประเมินของเราเป็นคะแนน 0-3 ของกรมอัตโนมัติตอน export
+export const DSD_TOPIC_LABELS = {
+  1: '1. ความรู้จากการฝึกอบรม',
+  2: '2. ทักษะในการปฏิบัติงาน',
+  3: '3. ทัศนคติที่มีต่อการปฏิบัติงาน',
+  4: '4. การแก้ปัญหาในการทำงาน',
+  5: '5. ความตระหนักในด้านความปลอดภัย',
+};
 
 export default function EvalItemsTab() {
   const [rows, setRows] = useState([]);
@@ -81,6 +91,7 @@ export default function EvalItemsTab() {
           { key: 'code', header: 'รหัส', className: 'font-medium' },
           { key: 'name_th', header: 'หัวข้อประเมิน' },
           { key: 'eval_type', header: 'ประเภทการประเมิน' },
+          { key: 'dsd_topic', header: 'หัวข้อกรมฯ', render: (r) => DSD_TOPIC_LABELS[r.dsd_topic] || '—' },
         ]}
       />
 
@@ -106,6 +117,14 @@ export default function EvalItemsTab() {
           </Field>
           <Field label="ชื่อ (อังกฤษ)">
             <Input value={form.name_en} onChange={(e) => set('name_en', e.target.value)} />
+          </Field>
+          <Field label="สอดคล้องกับหัวข้อกรมพัฒนาฝีมือแรงงาน">
+            <Select value={String(form.dsd_topic ?? '')} onChange={(e) => set('dsd_topic', e.target.value)}>
+              <option value="">— ไม่เกี่ยวข้อง —</option>
+              {Object.entries(DSD_TOPIC_LABELS).map(([v, label]) => (
+                <option key={v} value={v}>{label}</option>
+              ))}
+            </Select>
           </Field>
           <div className="sm:col-span-2">
             <Field label="รายละเอียด">
