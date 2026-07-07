@@ -196,7 +196,7 @@ export default function InvoiceIntakePage() {
         <div className="flex items-start gap-2 rounded-xl border px-4 py-3 text-sm" style={{ background: '#FEF3C7', borderColor: '#FCD34D', color: '#92400E' }}>
           <CircleAlert className="w-4 h-4 mt-0.5 shrink-0" />
           <span>
-            ยังไม่ได้ตั้งค่า AI (ใส่ <code className="font-mono text-xs">ANTHROPIC_API_KEY</code> ในไฟล์ .env ของเซิร์ฟเวอร์แล้วรีสตาร์ต)
+            ยังไม่ได้ตั้งค่า AI (ใส่ <code className="font-mono text-xs">GEMINI_API_KEY</code> ในไฟล์ .env ของเซิร์ฟเวอร์แล้วรีสตาร์ต)
             — ระหว่างนี้ใช้ปุ่ม "กรอกข้อมูลเอง" ได้ตามปกติ
           </span>
         </div>

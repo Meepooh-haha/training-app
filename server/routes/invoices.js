@@ -1,16 +1,16 @@
-// Invoice intake — อัปโหลดใบแจ้งหนี้ (PDF/รูปภาพ) แล้วให้ Claude อ่านและสกัดข้อมูล
+// Invoice intake — อัปโหลดใบแจ้งหนี้ (PDF/รูปภาพ) แล้วให้ Gemini อ่านและสกัดข้อมูล
 // (เลขที่ Invoice, ผู้ขาย, รายการสินค้า, วันครบกำหนดจ่าย) เพื่อส่งต่อไป prefill
 // ใบ PR และใบ Memo ของโครงการ
 //
 // ทำงานได้ 2 โหมด:
-//   - มี ANTHROPIC_API_KEY  → POST /extract เรียก Claude สกัดข้อมูลอัตโนมัติ
+//   - มี GEMINI_API_KEY     → POST /extract เรียก Gemini สกัดข้อมูลอัตโนมัติ
 //   - ไม่มี key             → /extract ตอบ 503 (AI_NOT_CONFIGURED) แต่ผู้ใช้ยัง
 //     บันทึกข้อมูลเองผ่าน POST /extractions ได้ — เซิร์ฟเวอร์ต้องไม่ล้มเพราะไม่มี key
 
 import { Router } from 'express';
 import multer from 'multer';
 import { randomUUID } from 'crypto';
-import { getAnthropic, hasAnthropicKey } from '../lib/anthropic-client.js';
+import { getGemini, hasGeminiKey } from '../lib/google-client.js';
 import db from '../db/db.js';
 
 const router = Router();
@@ -26,38 +26,38 @@ const upload = multer({
 });
 
 // ── Structured-output schema — บังคับให้โมเดลตอบ JSON ตามรูปนี้เท่านั้น ─────────
+// แปลง JSON Schema → Gemini ResponseSchema (SchemaType enum values, nullable prop)
+// รุ่น 2.0-flash: ฟรี 100%, 1500 RPM, 15M TPM — เหมาะกบการสกัดข้อมูล
 const EXTRACTION_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
+  type: 'OBJECT',
   required: [
     'invoice_number', 'invoice_date', 'due_date', 'vendor_name', 'vendor_tax_id',
     'line_items', 'subtotal', 'vat_amount', 'total_amount', 'uncertain_fields',
   ],
   properties: {
-    invoice_number: { type: ['string', 'null'] },
-    invoice_date:   { type: ['string', 'null'], description: 'YYYY-MM-DD (แปลง พ.ศ. เป็น ค.ศ.)' },
-    due_date:       { type: ['string', 'null'], description: 'วันครบกำหนดชำระ/ทำจ่าย YYYY-MM-DD' },
-    vendor_name:    { type: ['string', 'null'] },
-    vendor_tax_id:  { type: ['string', 'null'] },
+    invoice_number: { type: 'STRING', nullable: true },
+    invoice_date:   { type: 'STRING', nullable: true, description: 'YYYY-MM-DD (แปลง พ.ศ. เปน ค.ศ.)' },
+    due_date:       { type: 'STRING', nullable: true, description: 'วันครบกำหนดชำระ/ทำจาย YYYY-MM-DD' },
+    vendor_name:    { type: 'STRING', nullable: true },
+    vendor_tax_id:  { type: 'STRING', nullable: true },
     line_items: {
-      type: 'array',
+      type: 'ARRAY',
       items: {
-        type: 'object',
-        additionalProperties: false,
+        type: 'OBJECT',
         required: ['description', 'quantity', 'unit', 'unit_price', 'amount'],
         properties: {
-          description: { type: 'string' },
-          quantity:    { type: 'number' },
-          unit:        { type: ['string', 'null'] },
-          unit_price:  { type: 'number' },
-          amount:      { type: 'number' },
+          description: { type: 'STRING' },
+          quantity:    { type: 'NUMBER' },
+          unit:        { type: 'STRING', nullable: true },
+          unit_price:  { type: 'NUMBER' },
+          amount:      { type: 'NUMBER' },
         },
       },
     },
-    subtotal:     { type: ['number', 'null'] },
-    vat_amount:   { type: ['number', 'null'] },
-    total_amount: { type: ['number', 'null'] },
-    uncertain_fields: { type: 'array', items: { type: 'string' } },
+    subtotal:     { type: 'NUMBER', nullable: true },
+    vat_amount:   { type: 'NUMBER', nullable: true },
+    total_amount: { type: 'NUMBER', nullable: true },
+    uncertain_fields: { type: 'ARRAY', items: { type: 'STRING' } },
   },
 };
 
@@ -73,7 +73,7 @@ const SYSTEM_PROMPT = `คุณคือผู้ช่วยผู้เชี
 
 // ── GET /api/invoices/status — ให้ UI รู้ว่าตั้งค่า AI แล้วหรือยัง ─────────────
 router.get('/status', (_req, res) => {
-  res.json({ ai_ready: hasAnthropicKey() });
+  res.json({ ai_ready: hasGeminiKey() });
 });
 
 // ── POST /api/invoices/extract ────────────────────────────────────────────────
@@ -82,43 +82,51 @@ router.post('/extract', upload.single('file'), async (req, res, next) => {
   const file = req.file;
   if (!file) return res.status(400).json({ error: 'ไม่พบไฟล์ที่อัปโหลด' });
 
-  const anthropic = getAnthropic();
-  if (!anthropic) {
+  const gemini = getGemini();
+  if (!gemini) {
     return res.status(503).json({
       error: 'AI_NOT_CONFIGURED',
-      message: 'ยังไม่ได้ตั้งค่า ANTHROPIC_API_KEY บนเซิร์ฟเวอร์ — กรอกข้อมูลเองด้านล่างได้ หรือติดต่อผู้ดูแลระบบเพื่อเปิดใช้ AI',
+      message: 'ยังไม่ได้ตั้งค่า GEMINI_API_KEY บนเซิร์ฟเวอร์ — กรอกข้อมูลเองด้านล่างได้ หรือติดต่อผู้ดูแลระบบเพื่อเปิดใช้ AI',
     });
   }
 
   const projectId = Number(req.body?.project_id) || null;
   const base64File = file.buffer.toString('base64');
-  const isPdf = file.mimetype === 'application/pdf';
+  const mimeType = file.mimetype;
 
   try {
-    const response = await anthropic.messages.create({
-      model: 'claude-opus-4-8',
-      max_tokens: 16000,
-      thinking: { type: 'adaptive' },
-      system: SYSTEM_PROMPT,
-      output_config: { format: { type: 'json_schema', schema: EXTRACTION_SCHEMA } },
-      messages: [
+    const model = gemini.getGenerativeModel({
+      model: 'gemini-2.0-flash',
+      generationConfig: {
+        responseMimeType: 'application/json',
+        responseSchema: EXTRACTION_SCHEMA,
+      },
+    });
+
+    const result = await model.generateContent({
+      systemInstruction: SYSTEM_PROMPT,
+      contents: [
         {
           role: 'user',
-          content: [
-            isPdf
-              ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64File } }
-              : { type: 'image', source: { type: 'base64', media_type: file.mimetype, data: base64File } },
-            { type: 'text', text: 'ดึงข้อมูลจากใบแจ้งหนี้ (Invoice) นี้ตาม schema ที่กำหนด' },
+          parts: [
+            {
+              inlineData: {
+                mimeType: mimeType,
+                data: base64File,
+              },
+            },
+            { text: 'ดึงข้อมูลจากใบแจ้งหนี้ (Invoice) นี้ตาม schema ที่กำหนด' },
           ],
         },
       ],
     });
 
-    if (response.stop_reason === 'refusal') {
-      return res.status(502).json({ error: 'AI ปฏิเสธการอ่านเอกสารนี้ — กรอกข้อมูลเองแทนได้' });
+    const response = result.response;
+    if (response.candidates?.[0]?.finishReason === 'SAFETY') {
+      return res.status(502).json({ error: 'AI ปฏิเสธการอ่านเอกสารน้ี — กรอกข้อมูลเองแทนได' });
     }
 
-    const rawText = response.content.find((b) => b.type === 'text')?.text || '';
+    const rawText = response.text() || '';
     let extraction = null;
     try {
       extraction = JSON.parse(rawText);
@@ -156,7 +164,7 @@ router.post('/extract', upload.single('file'), async (req, res, next) => {
 
     res.json({ id: recordId, extraction });
   } catch (err) {
-    console.error('Anthropic API error:', err.message);
+    console.error('Gemini API error:', err.message);
     next(Object.assign(new Error('สกัดข้อมูล Invoice ไม่สำเร็จ: ' + err.message), { status: 502 }));
   }
 });
