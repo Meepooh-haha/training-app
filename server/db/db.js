@@ -163,6 +163,8 @@ export async function initDb() {
   // Round 3 (2026-07): หัวข้อย่อยในกำหนดการ + Training Proposal (การวัดผล) + พักเที่ยง
   try { await db.execute("ALTER TABLE training_topics ADD COLUMN subtopics TEXT DEFAULT ''"); } catch {}
   try { await db.execute("ALTER TABLE project_schedule ADD COLUMN subtopics TEXT DEFAULT ''"); } catch {}
+  try { await db.execute('ALTER TABLE project_schedule ADD COLUMN theory_minutes INTEGER DEFAULT 0'); } catch {}
+  try { await db.execute('ALTER TABLE project_schedule ADD COLUMN practice_minutes INTEGER DEFAULT 0'); } catch {}
   try { await db.execute("ALTER TABLE training_projects ADD COLUMN success_quantitative TEXT DEFAULT ''"); } catch {}
   try { await db.execute("ALTER TABLE training_projects ADD COLUMN success_qualitative TEXT DEFAULT ''"); } catch {}
   try { await db.execute("ALTER TABLE training_projects ADD COLUMN schedule_lunch_start TEXT DEFAULT '12:00'"); } catch {}

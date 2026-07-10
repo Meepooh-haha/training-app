@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { Loader2, Plus, Trash2, ArrowUp, ArrowDown, RefreshCw, CalendarClock, FileDown, ClipboardList } from 'lucide-react';
+import { Loader2, Plus, Trash2, ArrowUp, ArrowDown, RefreshCw, CalendarClock, FileDown, ClipboardList, FileJson, CheckCircle2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { api } from '../../lib/api.js';
 import { MODE_LABELS, fmtDuration, computeSchedule, withBreakRows, buildDocExportPayload } from '../../lib/coursePlanUtils.js';
+import { mapProposalToNode, parseProposalJson } from '../../lib/proposalImport.js';
 import { useProject } from './ProjectShell.jsx';
 
 const inputCls = 'w-full rounded-lg border border-ink-200 px-2.5 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-maroon-300';
@@ -19,6 +20,90 @@ function hasObjectiveAssessmentMismatch(outline) {
 
 function uniqueSortedDates(dates) {
   return [...new Set((dates || []).filter(Boolean))].sort();
+}
+
+function ProposalImportPreview({ result }) {
+  if (!result) return null;
+  const warningItems = [...result.warnings, ...result.missingFields.map((f) => `missingFields: ${f}`)];
+  return (
+    <div className="space-y-3">
+      {warningItems.length > 0 && (
+        <div className="rounded-lg px-3 py-2 text-xs" style={{ background: '#FEF3C7', color: '#92400E' }}>
+          <div className="font-semibold mb-1">warnings / missingFields</div>
+          <ul className="list-disc pl-5 space-y-0.5">
+            {warningItems.map((item, i) => <li key={`${item}-${i}`}>{item}</li>)}
+          </ul>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        <div className="rounded-lg border border-ink-200 bg-white overflow-hidden">
+          <div className="px-3 py-2 text-xs font-semibold text-ink-500" style={{ background: '#FAF7F6' }}>Step 1 โครงร่าง</div>
+          <div className="divide-y divide-ink-50">
+            {result.preview.outlineRows.map((row) => (
+              <div key={row.key} className="grid grid-cols-[150px_1fr] gap-2 px-3 py-2 text-xs">
+                <span className="text-ink-400">{row.label}</span>
+                <span className={row.willClear ? 'font-semibold text-amber-700' : 'text-ink-700'}>
+                  {row.value || 'จะกลายเป็นค่าว่าง'}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-ink-200 bg-white p-3 text-xs text-ink-600 space-y-2">
+          <div><span className="font-semibold text-ink-800">รูปแบบวัน:</span> {MODE_LABELS[result.preview.dateMode] || result.preview.dateMode}</div>
+          <div><span className="font-semibold text-ink-800">วันที่:</span> {result.preview.dates.length ? result.preview.dates.join(', ') : 'ยังไม่มีวันที่'}</div>
+          {result.preview.participantCount != null && (
+            <div><span className="font-semibold text-ink-800">จำนวนผู้เข้าอบรมจาก JSON:</span> {result.preview.participantCount}</div>
+          )}
+          <div>
+            <span className="font-semibold text-ink-800">วิทยากรที่พบ:</span>{' '}
+            {result.speakers.length ? result.speakers.map((s) => s.name).join(', ') : 'ไม่พบ'}
+          </div>
+          <div className="rounded-lg px-3 py-2" style={{ background: '#F8FAFC', color: '#475569' }}>
+            รายชื่อวิทยากรจะไม่ถูกเพิ่มเข้าข้อมูลหลักอัตโนมัติ
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-ink-200 bg-white overflow-x-auto">
+        <table className="w-full min-w-[760px] text-xs">
+          <thead className="text-left text-ink-400" style={{ background: '#FAF7F6' }}>
+            <tr>
+              <th className="px-3 py-2 font-medium">วันที่</th>
+              <th className="px-3 py-2 font-medium">เวลา</th>
+              <th className="px-3 py-2 font-medium">หัวข้อ</th>
+              <th className="px-3 py-2 font-medium">หัวข้อย่อย</th>
+              <th className="px-3 py-2 font-medium w-20">รวม</th>
+              <th className="px-3 py-2 font-medium w-20">ทฤษฎี</th>
+              <th className="px-3 py-2 font-medium w-20">ปฏิบัติ</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-ink-50">
+            {result.preview.days.flatMap((day, dayIndex) =>
+              day.rows.map((row, rowIndex) => (
+                <tr key={`${day.date}-${dayIndex}-${rowIndex}`} className={row.minutesMismatch ? 'bg-amber-50' : undefined}>
+                  <td className="px-3 py-2 text-ink-500">{rowIndex === 0 ? day.date || 'ยังไม่มีวันที่' : ''}</td>
+                  <td className="px-3 py-2 text-ink-600">{row.start_time || '—'} - {row.end_time || '—'}</td>
+                  <td className="px-3 py-2 text-ink-800">{row.topic_name || '—'}</td>
+                  <td className="px-3 py-2 text-ink-600 whitespace-pre-line">{row.subtopics || '—'}</td>
+                  <td className="px-3 py-2 text-ink-600">{fmtDuration(row.duration_minutes)}</td>
+                  <td className="px-3 py-2 text-ink-600">{row.theory_minutes}</td>
+                  <td className="px-3 py-2 text-ink-600">{row.practice_minutes}</td>
+                </tr>
+              )),
+            )}
+            {result.preview.days.length === 0 && (
+              <tr>
+                <td colSpan={7} className="px-3 py-8 text-center text-ink-400">ไม่มีรายการกำหนดการ</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
 }
 
 // กำหนดการของโครงการ: seed หัวข้อ+ระยะเวลาจากหลักสูตรใน Setup,
@@ -47,6 +132,10 @@ export default function SchedulePage() {
   const [separateDateDraft, setSeparateDateDraft] = useState('');
   const [separateDates, setSeparateDates] = useState([]);
   const [topics, setTopics] = useState([]);
+  const [proposalJsonText, setProposalJsonText] = useState('');
+  const [proposalPreview, setProposalPreview] = useState(null);
+  const [proposalError, setProposalError] = useState('');
+  const [importingProposal, setImportingProposal] = useState(false);
 
   const recompute = useCallback((nextTopics, nextSettings) => {
     setTopics(computeSchedule(nextTopics, nextSettings.date_mode, nextSettings));
@@ -123,7 +212,7 @@ export default function SchedulePage() {
 
   function addTopic() {
     const date = settings.date_mode === 'separate' ? separateDates[0] || '' : '';
-    recompute([...topics, { topic_code: null, topic_name: '', duration_minutes: 60, date, start_time: '', end_time: '', subtopics: '' }], settings);
+    recompute([...topics, { topic_code: null, topic_name: '', duration_minutes: 60, theory_minutes: 60, practice_minutes: 0, date, start_time: '', end_time: '', subtopics: '' }], settings);
   }
 
   function removeTopic(i) {
@@ -161,6 +250,8 @@ export default function SchedulePage() {
               topic_code: ct.topic_code || null,
               topic_name: m.name_th || ct.topic_code || `หัวข้อ ${i + 1}`,
               duration_minutes: dur || Number(ct.duration) || 0,
+              theory_minutes: dur || Number(ct.duration) || 0,
+              practice_minutes: 0,
               date: '', start_time: '', end_time: '',
             };
           });
@@ -184,6 +275,41 @@ export default function SchedulePage() {
       toast.error(e.message);
     } finally {
       setSaving(false);
+    }
+  }
+
+  function previewProposalImport() {
+    const parsed = parseProposalJson(proposalJsonText);
+    if (!parsed.ok) {
+      setProposalPreview(null);
+      setProposalError(parsed.error);
+      return;
+    }
+    const mapped = mapProposalToNode(parsed.data, { project });
+    setProposalPreview(mapped);
+    setProposalError('');
+    toast.success('ตรวจสอบแล้ว ดู preview ก่อนเขียนทับ');
+  }
+
+  async function applyProposalImport() {
+    if (!proposalPreview) return;
+    if (!window.confirm('เขียนทับโครงร่างและกำหนดการของ Node นี้ทั้งชุด?')) return;
+    setImportingProposal(true);
+    try {
+      await api.patch(`/training-projects/${project.id}/details`, proposalPreview.outline);
+      await api.put(`/training-projects/${project.id}/schedule`, {
+        ...proposalPreview.settings,
+        topics: proposalPreview.topics,
+      });
+      setSeeded(false);
+      await reloadShell();
+      await load();
+      setStep('outline');
+      toast.success('เขียนทับทั้งชุดแล้ว — ตรวจ Step 1 แล้วไป Step 2 ต่อ');
+    } catch (e) {
+      toast.error(e.message, { duration: 8000 });
+    } finally {
+      setImportingProposal(false);
     }
   }
 
@@ -277,6 +403,9 @@ export default function SchedulePage() {
   }
 
   const totalMins = topics.reduce((s, t) => s + (Number(t.duration_minutes) || 0), 0);
+  const minuteMismatchCount = topics.filter((t) =>
+    (Number(t.theory_minutes) || 0) + (Number(t.practice_minutes) || 0) !== (Number(t.duration_minutes) || 0),
+  ).length;
   const isSeparate = settings.date_mode === 'separate';
   const outlineMismatch = hasObjectiveAssessmentMismatch(outline);
 
@@ -314,6 +443,50 @@ export default function SchedulePage() {
             <FileDown className="w-3.5 h-3.5" /> DOCX กำหนดการ
           </button>
         </div>
+      </div>
+
+      <div className="rounded-2xl border border-ink-200 bg-white p-4 space-y-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 className="text-base font-bold text-ink-900 flex items-center gap-2">
+              <FileJson className="w-4 h-4" /> นำเข้าจาก JSON (Proposal ทั้งชุด)
+            </h3>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={previewProposalImport}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-ink-600 hover:bg-ink-100 border border-ink-200 transition-colors"
+            >
+              <CheckCircle2 className="w-3.5 h-3.5" /> ตรวจสอบก่อนนำเข้า
+            </button>
+            <button
+              type="button"
+              onClick={applyProposalImport}
+              disabled={!proposalPreview || importingProposal}
+              className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+              style={{ background: '#710F16' }}
+            >
+              {importingProposal ? 'กำลังเขียนทับ…' : 'เขียนทับทั้งชุด'}
+            </button>
+          </div>
+        </div>
+        <textarea
+          className="w-full min-h-[140px] rounded-lg border border-ink-200 bg-white px-3 py-2 font-mono text-xs text-ink-700 focus:outline-none focus:ring-2 focus:ring-maroon-300"
+          value={proposalJsonText}
+          onChange={(e) => {
+            setProposalJsonText(e.target.value);
+            setProposalPreview(null);
+            setProposalError('');
+          }}
+          placeholder='{"outline": {...}, "trainingDateMode": "single_day", "trainingDays": [...]}'
+        />
+        {proposalError && (
+          <div className="rounded-lg px-3 py-2 text-xs font-semibold" style={{ background: '#FCEBEC', color: '#710F16' }}>
+            {proposalError}
+          </div>
+        )}
+        <ProposalImportPreview result={proposalPreview} />
       </div>
 
       <div className="rounded-2xl border border-ink-200 bg-white p-2 flex flex-wrap gap-2">
@@ -540,12 +713,14 @@ export default function SchedulePage() {
 
       {/* ตารางหัวข้อ */}
       <div className="rounded-2xl border border-ink-200 bg-white overflow-x-auto">
-        <table className="w-full text-sm min-w-[720px]">
+        <table className="w-full text-sm min-w-[900px]">
           <thead className="text-left text-ink-400 text-xs" style={{ background: '#FAF7F6' }}>
             <tr>
               <th className="px-3 py-2.5 font-medium w-10">#</th>
               <th className="px-3 py-2.5 font-medium">หัวข้อ</th>
               <th className="px-3 py-2.5 font-medium w-28">ระยะเวลา (นาที)</th>
+              <th className="px-3 py-2.5 font-medium w-24">ทฤษฎี(น.)</th>
+              <th className="px-3 py-2.5 font-medium w-24">ปฏิบัติ(น.)</th>
               <th className="px-3 py-2.5 font-medium w-36">วันที่</th>
               <th className="px-3 py-2.5 font-medium w-24">เริ่ม</th>
               <th className="px-3 py-2.5 font-medium w-24">จบ</th>
@@ -555,7 +730,7 @@ export default function SchedulePage() {
           <tbody className="divide-y divide-ink-50">
             {topics.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-3 py-10 text-center text-ink-400 text-sm">
+                <td colSpan={9} className="px-3 py-10 text-center text-ink-400 text-sm">
                   ยังไม่มีหัวข้อ — กด "ดึงหัวข้อจากหลักสูตร" หรือเพิ่มเอง
                 </td>
               </tr>
@@ -568,7 +743,7 @@ export default function SchedulePage() {
                   return (
                     <tr key={`break-${ri}`} style={{ background: '#FAF7F6' }}>
                       <td className="px-3 py-2" />
-                      <td className="px-3 py-2 text-ink-400 text-xs italic" colSpan={2}>{row.topic_name}</td>
+                      <td className="px-3 py-2 text-ink-400 text-xs italic" colSpan={4}>{row.topic_name}</td>
                       <td className="px-3 py-2 text-ink-400 text-xs">{row.date || '—'}</td>
                       <td className="px-3 py-2 text-ink-400 text-xs">{row.start_time}</td>
                       <td className="px-3 py-2 text-ink-400 text-xs">{row.end_time}</td>
@@ -579,8 +754,9 @@ export default function SchedulePage() {
                 ti += 1;
                 const i = ti;
                 const t = row;
+                const minutesMismatch = (Number(t.theory_minutes) || 0) + (Number(t.practice_minutes) || 0) !== (Number(t.duration_minutes) || 0);
                 return (
-              <tr key={i}>
+              <tr key={i} className={minutesMismatch ? 'bg-amber-50' : undefined}>
                 <td className="px-3 py-2 text-ink-400 text-xs">{i + 1}</td>
                 <td className="px-3 py-2">
                   <input className={inputCls} value={t.topic_name || ''} onChange={(e) => setTopic(i, 'topic_name', e.target.value)} placeholder="ชื่อหัวข้อ" />
@@ -601,6 +777,23 @@ export default function SchedulePage() {
                     onChange={(e) => setTopic(i, 'duration_minutes', Number(e.target.value))}
                   />
                   <span className="block mt-0.5 text-[10px] text-ink-300">{fmtDuration(Number(t.duration_minutes) || 0)}</span>
+                </td>
+                <td className="px-3 py-2">
+                  <input
+                    type="number" min="0" step="5"
+                    className={inputCls}
+                    value={t.theory_minutes ?? 0}
+                    onChange={(e) => setTopic(i, 'theory_minutes', Number(e.target.value))}
+                  />
+                </td>
+                <td className="px-3 py-2">
+                  <input
+                    type="number" min="0" step="5"
+                    className={inputCls}
+                    value={t.practice_minutes ?? 0}
+                    onChange={(e) => setTopic(i, 'practice_minutes', Number(e.target.value))}
+                  />
+                  {minutesMismatch && <span className="block mt-0.5 text-[10px] text-amber-700">ผลรวมไม่ตรง</span>}
                 </td>
                 <td className="px-3 py-2">
                   <span className="text-ink-600 text-xs">{t.date || '—'}</span>
@@ -630,7 +823,9 @@ export default function SchedulePage() {
               <tr className="border-t border-ink-100 text-xs text-ink-500" style={{ background: '#FAF7F6' }}>
                 <td className="px-3 py-2" colSpan={2}>รวม {topics.length} หัวข้อ</td>
                 <td className="px-3 py-2 font-semibold">{fmtDuration(totalMins)}</td>
-                <td className="px-3 py-2" colSpan={4} />
+                <td className="px-3 py-2" colSpan={6}>
+                  {minuteMismatchCount > 0 && <span className="font-semibold text-amber-700">มี {minuteMismatchCount} หัวข้อที่นาทีทฤษฎี/ปฏิบัติรวมไม่ตรง</span>}
+                </td>
               </tr>
             </tfoot>
           )}

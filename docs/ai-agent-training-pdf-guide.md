@@ -45,6 +45,10 @@ Agent ไม่ควรสร้าง field ใหม่เองถ้าแ�
     "participantCount": null,
     "venue": "",
     "evaluationMethod": "",
+    "successQuantitative": "",
+    "successQualitative": "",
+    "trainerName": "",
+    "trainerOrg": "",
     "otherFieldsFromExistingOutlineForm": {}
   },
   "trainingDateMode": "single_day | continuous_days | separate_days | unknown",
@@ -54,6 +58,12 @@ Agent ไม่ควรสร้าง field ใหม่เองถ้าแ�
     "endDate": null,
     "separateDates": []
   },
+  "scheduleSettings": {
+    "dailyStartTime": "HH:mm",
+    "hoursPerDay": 6,
+    "lunchStart": "HH:mm",
+    "lunchEnd": "HH:mm"
+  },
   "trainingDays": [
     {
       "date": "YYYY-MM-DD",
@@ -62,8 +72,12 @@ Agent ไม่ควรสร้าง field ใหม่เองถ้าแ�
         {
           "startTime": "HH:mm",
           "endTime": "HH:mm",
+          "durationMinutes": null,
+          "theoryMinutes": null,
+          "practiceMinutes": null,
           "topic": "",
           "content": "",
+          "subtopics": [],
           "speakerName": "",
           "note": "",
           "confidence": "high | medium | low"
@@ -84,6 +98,8 @@ Agent ไม่ควรสร้าง field ใหม่เองถ้าแ�
   "evidenceNotes": []
 }
 ```
+
+ผู้ใช้จะวาง JSON นี้ใน Node **โครงร่างและกำหนดการอบรม** แล้วกดตรวจสอบก่อนนำเข้าเสมอ ระบบจะแสดง preview ก่อนเขียนจริง และเมื่อกด **เขียนทับทั้งชุด** จะ overwrite เฉพาะ Step 1 + Step 2 ของโครงการนั้น ไม่แตะรายชื่อผู้เข้าอบรมหรือข้อมูลหลัก
 
 ## วิธีเลือก `trainingDateMode`
 
@@ -122,6 +138,15 @@ Agent ไม่ควรสร้าง field ใหม่เองถ้าแ�
 
 ใช้เมื่อ PDF ไม่มีวันที่ หรือวันที่กำกวม เช่น มีหลายวันที่แต่ไม่ชัดว่าเป็นวันอบรมจริงหรือ deadline
 
+## Mapping `trainingDateMode` เข้าแอป
+
+| JSON | แอป | กติกาวันที่ |
+|---|---|---|
+| `single_day` | `single` | ใช้วันแรกเป็น `training_date` และ `end_date` |
+| `continuous_days` | `consecutive` | sort วันที่ แล้วใช้วันแรกถึงวันสุดท้าย |
+| `separate_days` | `separate` | sort + dedupe วันที่ทั้งหมดเป็น `separateDates` |
+| `unknown` | `separate` | ถ้ามีวันที่ให้ใช้แบบ separate; ถ้าไม่มีวันที่ให้เว้นว่างและใส่ warning |
+
 ## Mapping เข้า Step 1: โครงร่างอบรม
 
 ให้ใช้ฟอร์มโครงร่างอบรมเดิมเป็นหลัก โดย map ข้อมูลประมาณนี้:
@@ -129,9 +154,12 @@ Agent ไม่ควรสร้าง field ใหม่เองถ้าแ�
 - ชื่อหลักสูตร/โครงการ -> ชื่อหลักสูตรในโครงร่าง
 - วัตถุประสงค์ -> วัตถุประสงค์
 - กลุ่มเป้าหมาย -> กลุ่มเป้าหมายในโครงร่างเท่านั้น ไม่ต้องส่งต่อไปกำหนดการ
-- จำนวนผู้เข้าอบรม -> จำนวนผู้เข้าอบรม
+- จำนวนผู้เข้าอบรม -> preview เท่านั้น ไม่เขียนเข้าฐานข้อมูล
 - สถานที่ -> สถานที่ในโครงร่าง และใช้กับกำหนดการเฉพาะเมื่อฟอร์มกำหนดการเดิมต้องใช้
-- วิธีประเมินผล -> วิธีประเมินผล
+- `successQuantitative` -> การวัดผลเชิงปริมาณ
+- `successQualitative` -> การวัดผลเชิงคุณภาพ
+- `evaluationMethod` -> ใช้เป็นเชิงคุณภาพเมื่อไม่มี field แยก และเพิ่ม warning ให้ตรวจ
+- `trainerName` / `trainerOrg` -> วิทยากรหลัก / หน่วยงานวิทยากร
 - วันอบรม -> ตัวเลือกวันอบรมใน Step 1 และ `trainingDays`
 
 วัตถุประสงค์และวิธีการประเมินผลต้องสอดคล้องกัน ถ้า PDF ระบุวัตถุประสงค์เป็นทักษะปฏิบัติ แต่วิธีประเมินผลเป็นเพียงแบบทดสอบความรู้ หรือมีความไม่สอดคล้องลักษณะเดียวกัน ให้เพิ่ม warning และถามผู้ใช้ก่อนส่งข้อมูลเข้าแอป
@@ -146,8 +174,11 @@ Agent ไม่ควรสร้าง field ใหม่เองถ้าแ�
 
 - เวลาเริ่ม
 - เวลาสิ้นสุด
+- ระยะเวลาเป็นนาที (`durationMinutes`) ถ้าไม่มีให้คำนวณจากเวลาเริ่ม-สิ้นสุด
+- นาทีทฤษฎี (`theoryMinutes`)
+- นาทีปฏิบัติ (`practiceMinutes`)
 - หัวข้อ
-- เนื้อหาโดยย่อ
+- เนื้อหาโดยย่อ: `subtopics` มาก่อน `content`; ถ้ามีเฉพาะ `content` แอปจะ map เป็นหัวข้อย่อย
 - วิทยากร
 - หมายเหตุ เช่น พักเบรก, lunch, workshop, Q&A
 
@@ -161,7 +192,7 @@ Agent ไม่ควรสร้าง field ใหม่เองถ้าแ�
 - ถ้าไม่พบในข้อมูลหลัก ให้ใส่ `foundInMasterData: false`
 - อย่าเพิ่มเข้าข้อมูลหลักอัตโนมัติ
 - ให้ตั้ง `suggestAddToMaster: true` เมื่อชื่อดูเป็นชื่อบุคคลจริงและถูกใช้ในกำหนดการ
-- บันทึกเข้าข้อมูลหลักเฉพาะชื่อเท่านั้นเมื่อผู้ใช้ติ๊ก checkbox ในแอป
+- ช่อง import JSON จะแสดงรายชื่อวิทยากรเพื่อ preview เท่านั้น และจะไม่ auto-add เข้า `instructors`
 
 ## สิ่งที่ต้องถามผู้ใช้
 
@@ -209,4 +240,3 @@ Agent ไม่ควรสร้าง field ใหม่เองถ้าแ�
 - หัวข้อ/เนื้อหาอยู่ในกำหนดการ
 - วิทยากรใหม่ไม่ถูกเพิ่ม master data อัตโนมัติ
 - ทุกค่าที่ไม่มั่นใจอยู่ใน `warnings` หรือ `missingFields`
-

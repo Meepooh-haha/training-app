@@ -319,7 +319,15 @@ router.get('/training-projects/:id/schedule', h(async (req, res) => {
   res.json({
     ...settings,
     seeded: true,
-    topics: topics.map((t, i) => ({ ...t, sequence: t.sequence ?? i + 1, date: '', start_time: '', end_time: '' })),
+    topics: topics.map((t, i) => ({
+      ...t,
+      sequence: t.sequence ?? i + 1,
+      date: '',
+      start_time: '',
+      end_time: '',
+      theory_minutes: Number(t.duration_minutes) || 0,
+      practice_minutes: 0,
+    })),
   });
 }));
 
@@ -353,13 +361,16 @@ router.put('/training-projects/:id/schedule', h(async (req, res) => {
       const t = topics[i];
       await tx.execute({
         sql: `INSERT INTO project_schedule
-                (project_id, topic_code, topic_name, sequence, date, start_time, end_time, duration_minutes, subtopics)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                (project_id, topic_code, topic_name, sequence, date, start_time, end_time,
+                 duration_minutes, subtopics, theory_minutes, practice_minutes)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         args: [
           id, t.topic_code || null, String(t.topic_name || '').trim(), i + 1,
           t.date || null, t.start_time || null, t.end_time || null,
           Number(t.duration_minutes) || 0,
           String(t.subtopics || '').trim(),
+          Number(t.theory_minutes) || 0,
+          Number(t.practice_minutes) || 0,
         ],
       });
     }

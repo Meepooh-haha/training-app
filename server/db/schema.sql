@@ -217,7 +217,9 @@ CREATE TABLE IF NOT EXISTS project_schedule (
   start_time       TEXT,
   end_time         TEXT,
   duration_minutes INTEGER DEFAULT 0,
-  subtopics        TEXT DEFAULT ''       -- หัวข้อย่อย 1 บรรทัด = 1 bullet (seed จาก training_topics แก้ได้ต่อโครงการ)
+  subtopics        TEXT DEFAULT '',      -- หัวข้อย่อย 1 บรรทัด = 1 bullet (seed จาก training_topics แก้ได้ต่อโครงการ)
+  theory_minutes   INTEGER DEFAULT 0,
+  practice_minutes INTEGER DEFAULT 0
 );
 
 -- 2C-3: Training records (ประวัติการอบรมรายคน — snapshot ตอนกดบันทึกใน Phase 4
