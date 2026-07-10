@@ -25,9 +25,9 @@ export const workflowHubs = [
     id: 'execute',
     label: 'เตรียม-จัดอบรม',
     order: 2,
-    // ลำดับงานจริง: ทำกำหนดการ (ต้องมีวันอบรมจาก Phase 1) ก่อน แล้วค่อยพิมพ์ใบลงทะเบียน
+    // ลำดับงานจริง: ทำโครงร่าง+กำหนดการใน Node เดียวก่อน แล้วค่อยพิมพ์ใบลงทะเบียน
     satellites: [
-      { id: 'schedule', label: 'กำหนดการ', route: 'schedule', publicHidden: true },
+      { id: 'schedule', label: 'โครงร่างและกำหนดการอบรม', route: 'schedule', publicHidden: true },
       { id: 'registration', label: 'ลงทะเบียน', route: 'registration', parent: 'schedule', publicHidden: true },
     ],
   },
